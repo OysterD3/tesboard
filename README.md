@@ -6,6 +6,18 @@ A **read-only** personal dashboard for your Tesla, built on the official **Tesla
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/screenshots/overview.png" alt="Overview tab" width="240"><br><sub><b>Overview</b><br>battery, estimated range, quick stats</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/drives.png" alt="Drives tab" width="240"><br><sub><b>Drives</b><br>reconstructed trips with a GPS map</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/insights.png" alt="Insights tab" width="240"><br><sub><b>Insights</b><br>cost of ownership, efficiency, standby loss</sub></td>
+  </tr>
+</table>
+
+---
+
 ## How it works (the one thing to understand)
 
 The Fleet API has **no trip-history endpoint** and **only bills Supercharger sessions**. So tesboard is not an API proxy — it's a **sleep-aware poller → Postgres → sessionization engine**:
