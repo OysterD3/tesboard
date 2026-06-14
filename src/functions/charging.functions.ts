@@ -7,6 +7,7 @@ import { and, asc, desc, eq, gte, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import { chargeSession, vehicleSnapshot } from '../server/schema'
 import type { ChargeSession } from '../types/db'
 
@@ -29,12 +30,19 @@ export interface ChargingPayload {
 
 export const getCharging = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<ChargingPayload> => {
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<ChargingPayload> => {
     const db = getDb()
+    const vin = data?.vin
     const rows = await db
       .select()
       .from(chargeSession)
-      .where(eq(chargeSession.user_id, context.userId))
+      .where(
+        and(
+          eq(chargeSession.user_id, context.userId),
+          vin ? eq(chargeSession.vin, vin) : undefined,
+        ),
+      )
       .orderBy(desc(chargeSession.started_at))
       .limit(500)
 

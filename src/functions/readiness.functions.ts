@@ -8,6 +8,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, desc, eq } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import { electricityRate, vehicle, vehicleSnapshot } from '../server/schema'
 import type { ChargingState, Vehicle, VehicleSnapshot } from '../types/db'
 
@@ -47,9 +48,11 @@ function staleness(ageSeconds: number | null): Staleness {
 
 export const getDepartureReadiness = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<DepartureReadinessPayload> => {
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<DepartureReadinessPayload> => {
     const db = getDb()
     const userId = context.userId
+    const vin = data?.vin
 
     const [rateRows, vehicles] = await Promise.all([
       db
@@ -57,7 +60,11 @@ export const getDepartureReadiness = createServerFn({ method: 'GET' })
         .from(electricityRate)
         .where(eq(electricityRate.user_id, userId))
         .limit(1),
-      db.select().from(vehicle).where(eq(vehicle.user_id, userId)).orderBy(vehicle.created_at),
+      db
+        .select()
+        .from(vehicle)
+        .where(and(eq(vehicle.user_id, userId), vin ? eq(vehicle.vin, vin) : undefined))
+        .orderBy(vehicle.created_at),
     ])
     const targetSoc = rateRows[0]?.target ?? DEFAULT_TARGET_SOC
 

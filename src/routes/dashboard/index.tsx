@@ -24,9 +24,9 @@ const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 
 function OverviewPage() {
-  const { overview, readiness, drives, linked } = dashApi.useLoaderData()
+  const { overview, readiness, drives, linked, activeVin } = dashApi.useLoaderData()
   const { units: u, accent } = useDash()
-  const vm = buildOverview(overview, readiness, drives)
+  const vm = buildOverview(overview, readiness, drives, activeVin)
   const navigate = useNavigate()
 
   if (!vm.hasSnapshot) {
@@ -127,7 +127,7 @@ function OverviewPage() {
       {/* Last drive */}
       {vm.lastDrive && (
         <button
-          onClick={() => navigate({ to: '/dashboard/drives' })}
+          onClick={() => navigate({ to: '/dashboard/drives', search: (prev) => prev })}
           style={{ textAlign: 'left', border: '1px solid var(--border,rgba(0,0,0,0.07))', cursor: 'pointer', background: 'var(--card,#fff)', borderRadius: 20, boxShadow: 'var(--shadow)', padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

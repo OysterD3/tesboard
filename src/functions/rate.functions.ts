@@ -9,6 +9,7 @@ import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import { classifyChargeLocation } from '../server/geo'
 import { chargeSession, electricityRate, vehicleSnapshot } from '../server/schema'
 import type { ChargeSession, ElectricityRate } from '../types/db'
@@ -80,11 +81,14 @@ export const saveRate = createServerFn({ method: 'POST' })
 /** Newest stored GPS fix — used by Settings to one-click prefill the home location. */
 export const getLatestVehicleGps = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
+  .validator(vinFilter)
   .handler(
     async ({
+      data,
       context,
     }): Promise<{ lat: number; lng: number; recorded_at: string } | null> => {
       const db = getDb()
+      const vin = data?.vin
       const rows = await db
         .select({
           lat: vehicleSnapshot.latitude,
@@ -93,7 +97,11 @@ export const getLatestVehicleGps = createServerFn({ method: 'GET' })
         })
         .from(vehicleSnapshot)
         .where(
-          and(eq(vehicleSnapshot.user_id, context.userId), isNotNull(vehicleSnapshot.latitude)),
+          and(
+            eq(vehicleSnapshot.user_id, context.userId),
+            isNotNull(vehicleSnapshot.latitude),
+            vin ? eq(vehicleSnapshot.vin, vin) : undefined,
+          ),
         )
         .orderBy(desc(vehicleSnapshot.recorded_at))
         .limit(1)

@@ -9,6 +9,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq, gte } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import { vehicleSnapshot } from '../server/schema'
 
 export interface PhantomDrain {
@@ -26,8 +27,10 @@ const MAX_INTERVAL_DROP_MI = 10 // larger single-step drops are noise/data gaps,
 
 export const getPhantomDrain = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<PhantomDrain> => {
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<PhantomDrain> => {
     const db = getDb()
+    const vin = data?.vin
     const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
 
     const snaps = await db
@@ -39,7 +42,13 @@ export const getPhantomDrain = createServerFn({ method: 'GET' })
         at: vehicleSnapshot.recorded_at,
       })
       .from(vehicleSnapshot)
-      .where(and(eq(vehicleSnapshot.user_id, context.userId), gte(vehicleSnapshot.recorded_at, since)))
+      .where(
+        and(
+          eq(vehicleSnapshot.user_id, context.userId),
+          gte(vehicleSnapshot.recorded_at, since),
+          vin ? eq(vehicleSnapshot.vin, vin) : undefined,
+        ),
+      )
       .orderBy(asc(vehicleSnapshot.recorded_at))
 
     const empty: PhantomDrain = { hasData: false, lostMi: 0, perDayMi: 0, days: WINDOW_DAYS }

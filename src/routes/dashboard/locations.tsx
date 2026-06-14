@@ -4,7 +4,8 @@ import { EmptyState, StatCard, dateTime, kwh, money } from '../../components/Sta
 import { kw } from '../../lib/charge-location'
 
 export const Route = createFileRoute('/dashboard/locations')({
-  loader: () => getChargingLocations(),
+  loaderDeps: ({ search }) => ({ vin: (search as { vin?: string }).vin }),
+  loader: ({ deps }) => getChargingLocations({ data: { vin: deps.vin } }),
   component: LocationsPage,
 })
 

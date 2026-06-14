@@ -8,6 +8,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq, gt, gte, isNotNull, lte } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import { haversineMeters } from '../server/geo'
 import { chargeSession, electricityRate, vehicleSnapshot } from '../server/schema'
 import { locationKey } from '../lib/charge-location'
@@ -55,14 +56,22 @@ interface Acc {
 
 export const getChargingLocations = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<ChargingLocationsPayload> => {
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<ChargingLocationsPayload> => {
     const db = getDb()
     const userId = context.userId
+    const vin = data?.vin
 
     const sessions = (await db
       .select()
       .from(chargeSession)
-      .where(and(eq(chargeSession.user_id, userId), isNotNull(chargeSession.ended_at)))
+      .where(
+        and(
+          eq(chargeSession.user_id, userId),
+          isNotNull(chargeSession.ended_at),
+          vin ? eq(chargeSession.vin, vin) : undefined,
+        ),
+      )
       .orderBy(asc(chargeSession.started_at))
       .limit(MAX_SESSIONS)) as ChargeSession[]
 
@@ -94,6 +103,7 @@ export const getChargingLocations = createServerFn({ method: 'GET' })
           gt(vehicleSnapshot.charger_power, 0),
           gte(vehicleSnapshot.recorded_at, spanStart),
           lte(vehicleSnapshot.recorded_at, spanEnd),
+          vin ? eq(vehicleSnapshot.vin, vin) : undefined,
         ),
       )
       .orderBy(asc(vehicleSnapshot.recorded_at))

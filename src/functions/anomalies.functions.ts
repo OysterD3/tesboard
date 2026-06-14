@@ -9,6 +9,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import { anomalyFlag } from '../server/schema'
 import type { AnomalyFlag } from '../types/db'
 
@@ -19,12 +20,14 @@ export interface AnomaliesPayload {
 
 export const getAnomalies = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<AnomaliesPayload> => {
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<AnomaliesPayload> => {
     const db = getDb()
+    const vin = data?.vin
     const rows = (await db
       .select()
       .from(anomalyFlag)
-      .where(eq(anomalyFlag.user_id, context.userId))
+      .where(and(eq(anomalyFlag.user_id, context.userId), vin ? eq(anomalyFlag.vin, vin) : undefined))
       .orderBy(desc(anomalyFlag.created_at))
       .limit(500)) as AnomalyFlag[]
     return { flags: rows, unreadCount: rows.filter((f) => f.dismissed_at == null).length }

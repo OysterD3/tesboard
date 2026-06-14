@@ -5,7 +5,8 @@ import { EmptyState, dateTime } from '../../components/Stat'
 import type { AnomalyFlag } from '../../types/db'
 
 export const Route = createFileRoute('/dashboard/flags')({
-  loader: () => getAnomalies(),
+  loaderDeps: ({ search }) => ({ vin: (search as { vin?: string }).vin }),
+  loader: ({ deps }) => getAnomalies({ data: { vin: deps.vin } }),
   component: FlagsPage,
 })
 

@@ -21,11 +21,12 @@ const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 
 function SettingsPage() {
-  const { rate, overview } = dashApi.useLoaderData()
+  const { rate, overview, activeVin } = dashApi.useLoaderData()
   const { theme, units: u, accent, toggleTheme, setUnit, setAccent } = useDash()
   const isDark = theme === 'dark'
 
-  const vw = overview.vehicles[0]
+  const vw =
+    overview.vehicles.find((v) => v.vehicle.vin === activeVin) ?? overview.vehicles[0]
   const vehicleName = vw?.vehicle.display_name || 'Your Tesla'
   const trim = vw?.vehicle.car_type || null
 
@@ -123,7 +124,7 @@ function SettingsPage() {
         </ToggleRow>
       </Card>
 
-      <RateForm rate={rate} accent={accent} />
+      <RateForm rate={rate} accent={accent} activeVin={activeVin} />
 
       <SignOutRow />
 
@@ -166,7 +167,15 @@ const inputStyle: CSSProperties = {
   fontSize: 14,
 }
 
-function RateForm({ rate, accent }: { rate: ElectricityRate | null; accent: string }) {
+function RateForm({
+  rate,
+  accent,
+  activeVin,
+}: {
+  rate: ElectricityRate | null
+  accent: string
+  activeVin: string | null
+}) {
   const router = useRouter()
   const save = useServerFn(saveRate)
   const getGps = useServerFn(getLatestVehicleGps)
@@ -188,7 +197,7 @@ function RateForm({ rate, accent }: { rate: ElectricityRate | null; accent: stri
   async function useCarGps() {
     setGpsMsg(null)
     try {
-      const gps = await getGps()
+      const gps = await getGps({ data: { vin: activeVin ?? undefined } })
       if (!gps) {
         setGpsMsg('No stored GPS fix yet — the poller needs at least one reading with location.')
         return

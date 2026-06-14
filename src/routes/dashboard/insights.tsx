@@ -20,10 +20,10 @@ function money(amount: number | null, currency: string, digits = 0): string {
 }
 
 function InsightsPage() {
-  const { overview, readiness, drives, charging, phantom } = dashApi.useLoaderData()
+  const { overview, readiness, drives, charging, phantom, activeVin } = dashApi.useLoaderData()
   const { units: u, accent } = useDash()
 
-  const ov = buildOverview(overview, readiness, drives)
+  const ov = buildOverview(overview, readiness, drives, activeVin)
   const vm = buildInsights(charging, drives, ov.odoKm, phantom)
 
   const homePct = vm.homePct != null ? Math.round(vm.homePct * 100) : null

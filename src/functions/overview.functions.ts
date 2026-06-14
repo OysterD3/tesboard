@@ -3,9 +3,10 @@
  * headline counts. Reads only from Postgres (via Drizzle).
  */
 import { createServerFn } from '@tanstack/react-start'
-import { and, count, desc, eq, isNull } from 'drizzle-orm'
+import { and, count, desc, eq, isNull, type SQL } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import {
   anomalyFlag,
   chargeSession,
@@ -31,9 +32,11 @@ export interface OverviewPayload {
 
 export const getOverview = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<OverviewPayload> => {
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<OverviewPayload> => {
     const db = getDb()
     const userId = context.userId
+    const vin = data?.vin
 
     const [accountRows, vehicles] = await Promise.all([
       db
@@ -61,13 +64,19 @@ export const getOverview = createServerFn({ method: 'GET' })
     }
 
     const [snapCount, driveCount, chargeCount, anomalyRows] = await Promise.all([
-      countRows(db, vehicleSnapshot, userId),
-      countRows(db, driveSession, userId),
-      countRows(db, chargeSession, userId),
+      countRows(db, vehicleSnapshot, userId, vin),
+      countRows(db, driveSession, userId, vin),
+      countRows(db, chargeSession, userId, vin),
       db
         .select({ value: count() })
         .from(anomalyFlag)
-        .where(and(eq(anomalyFlag.user_id, userId), isNull(anomalyFlag.dismissed_at))),
+        .where(
+          and(
+            eq(anomalyFlag.user_id, userId),
+            isNull(anomalyFlag.dismissed_at),
+            vin ? eq(anomalyFlag.vin, vin) : undefined,
+          ),
+        ),
     ])
 
     return {
@@ -83,10 +92,11 @@ async function countRows(
   db: ReturnType<typeof getDb>,
   table: typeof vehicleSnapshot | typeof driveSession | typeof chargeSession,
   userId: string,
+  vin: string | undefined,
 ): Promise<number> {
-  const rows = await db
-    .select({ value: count() })
-    .from(table)
-    .where(eq(table.user_id, userId))
+  const where: SQL | undefined = vin
+    ? and(eq(table.user_id, userId), eq(table.vin, vin))
+    : eq(table.user_id, userId)
+  const rows = await db.select({ value: count() }).from(table).where(where)
   return rows[0]?.value ?? 0
 }

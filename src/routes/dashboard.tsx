@@ -4,10 +4,11 @@ import {
   createFileRoute,
   redirect,
   useLocation,
+  useNavigate,
 } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { getAuthStatus } from '../functions/account.functions'
-import { getOverview } from '../functions/overview.functions'
+import { getOverview, type VehicleWithLatest } from '../functions/overview.functions'
 import { getDepartureReadiness } from '../functions/readiness.functions'
 import { getDrives } from '../functions/drives.functions'
 import { getCharging } from '../functions/charging.functions'
@@ -17,23 +18,84 @@ import { DashboardProvider, useDash } from '../components/dashboard/DashboardPro
 import { Icon, Card } from '../components/dashboard/primitives'
 import { ICON, SECTION, themeVars } from '../components/dashboard/theme'
 
+interface DashSearch {
+  vin?: string
+  tesla_error?: string
+  tesla_linked?: string
+}
+
+/**
+ * Pick the active vehicle: the requested vin if it's one the user owns,
+ * otherwise the most-recently-active car (latest snapshot wins; ISO timestamps
+ * sort lexicographically). Null only when the account has no vehicles yet.
+ */
+function resolveActiveVin(
+  vehicles: VehicleWithLatest[],
+  requested: string | undefined,
+): string | null {
+  if (vehicles.length === 0) return null
+  if (requested && vehicles.some((v) => v.vehicle.vin === requested)) return requested
+  let best = vehicles[0]
+  let bestAt = best.latest?.recorded_at ?? ''
+  for (const v of vehicles) {
+    const at = v.latest?.recorded_at ?? ''
+    if (at > bestAt) {
+      best = v
+      bestAt = at
+    }
+  }
+  return best.vehicle.vin
+}
+
 export const Route = createFileRoute('/dashboard')({
+  validateSearch: (search: Record<string, unknown>): DashSearch => ({
+    vin: typeof search.vin === 'string' ? search.vin : undefined,
+    tesla_error: typeof search.tesla_error === 'string' ? search.tesla_error : undefined,
+    tesla_linked: typeof search.tesla_linked === 'string' ? search.tesla_linked : undefined,
+  }),
   beforeLoad: async () => {
     const status = await getAuthStatus()
     if (!status.authed) throw redirect({ to: '/login' })
     return { auth: status }
   },
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({ vin: search.vin }),
+  loader: async ({ context, deps, location }) => {
     const linked = context.auth.teslaLinked
-    const [overview, readiness, drives, charging, rate, phantom] = await Promise.all([
-      getOverview(),
-      getDepartureReadiness(),
-      getDrives(),
-      getCharging(),
+
+    // Overview carries the full vehicle list (for the switcher) regardless of vin.
+    const overview = await getOverview({ data: { vin: deps.vin } })
+    const activeVin = resolveActiveVin(overview.vehicles, deps.vin)
+
+    // Pin the resolved vin into the URL so every tab + child loader scopes to the
+    // same car (and the choice is shareable). Preserves the current path + search.
+    if (activeVin && deps.vin !== activeVin) {
+      const sp = new URLSearchParams()
+      for (const [k, v] of Object.entries(location.search)) {
+        if (typeof v === 'string') sp.set(k, v)
+      }
+      sp.set('vin', activeVin)
+      throw redirect({ href: `${location.pathname}?${sp.toString()}`, replace: true })
+    }
+
+    const vin = activeVin ?? undefined
+    const [readiness, drives, charging, rate, phantom] = await Promise.all([
+      getDepartureReadiness({ data: { vin } }),
+      getDrives({ data: { vin } }),
+      getCharging({ data: { vin } }),
       getRate(),
-      getPhantomDrain(),
+      getPhantomDrain({ data: { vin } }),
     ])
-    return { auth: context.auth, linked, overview, readiness, drives, charging, rate, phantom }
+    return {
+      auth: context.auth,
+      linked,
+      overview,
+      readiness,
+      drives,
+      charging,
+      rate,
+      phantom,
+      activeVin,
+    }
   },
   component: () => (
     <DashboardProvider>
@@ -57,14 +119,24 @@ function greetingFor(hour: number): string {
 }
 
 function DashboardShell() {
-  const { linked, overview } = Route.useLoaderData()
+  const { linked, overview, activeVin } = Route.useLoaderData()
   const { theme, accent, toggleTheme } = useDash()
   const location = useLocation()
+  const navigate = useNavigate()
   const td = 'var(--td,#86868b)'
 
-  const vw = overview.vehicles[0]
+  const vehicles = overview.vehicles
+  const vw = vehicles.find((v) => v.vehicle.vin === activeVin) ?? vehicles[0]
   const vehicleName = vw?.vehicle.display_name || 'Your Tesla'
   const trim = vw?.vehicle.car_type || null
+  const canSwitch = vehicles.length > 1
+
+  const [pickerOpen, setPickerOpen] = useState(false)
+  function selectVehicle(vin: string) {
+    setPickerOpen(false)
+    if (vin === activeVin) return
+    navigate({ to: '.', search: (prev) => ({ ...prev, vin }), replace: true })
+  }
 
   // Time-based greeting, computed after mount to avoid an SSR/clock mismatch.
   const [greeting, setGreeting] = useState('Welcome back')
@@ -97,10 +169,48 @@ function DashboardShell() {
       >
         {/* HEADER */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '30px 2px 22px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, position: 'relative' }}>
             <span style={{ fontSize: 13, fontWeight: 500, color: td, whiteSpace: 'nowrap' }}>{greeting}</span>
-            <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--tx,#1d1d1f)' }}>{vehicleName}</span>
+            {canSwitch ? (
+              <button
+                onClick={() => setPickerOpen((o) => !o)}
+                aria-haspopup="listbox"
+                aria-expanded={pickerOpen}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', maxWidth: '100%' }}
+              >
+                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--tx,#1d1d1f)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleName}</span>
+                <Icon d={ICON.chevron} size={20} color={td} />
+              </button>
+            ) : (
+              <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--tx,#1d1d1f)' }}>{vehicleName}</span>
+            )}
             {trim && <span style={{ fontSize: 13, fontWeight: 500, color: td }}>{trim}</span>}
+
+            {canSwitch && pickerOpen && (
+              <>
+                <div onClick={() => setPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
+                <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 8, minWidth: 220, maxWidth: 280, background: 'var(--card,#fff)', border: '1px solid var(--border,rgba(0,0,0,0.08))', borderRadius: 16, boxShadow: 'var(--shadow)', padding: 6, zIndex: 31 }}>
+                  {vehicles.map((v) => {
+                    const isActive = v.vehicle.vin === activeVin
+                    return (
+                      <button
+                        key={v.vehicle.vin}
+                        role="option"
+                        aria-selected={isActive}
+                        onClick={() => selectVehicle(v.vehicle.vin)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', background: isActive ? 'var(--track,#f0f0f3)' : 'transparent', borderRadius: 11, padding: '10px 12px' }}
+                      >
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--tx,#1d1d1f)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicle.display_name || 'Tesla'}</span>
+                          {v.vehicle.car_type && <span style={{ fontSize: 11, fontWeight: 500, color: td }}>{v.vehicle.car_type}</span>}
+                        </span>
+                        {isActive && <Icon d={ICON.check} size={16} color={accent} />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </div>
           <button
             onClick={toggleTheme}
@@ -177,6 +287,7 @@ function DashboardShell() {
               <Link
                 key={n.key}
                 to={n.to}
+                search={(prev) => prev}
                 style={{
                   border: 'none',
                   background: 'transparent',

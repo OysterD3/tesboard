@@ -7,6 +7,7 @@ import { and, asc, desc, eq, gte, isNotNull, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
+import { vinFilter } from './vin'
 import { driveSession, vehicleSnapshot } from '../server/schema'
 import type { DriveSession } from '../types/db'
 
@@ -24,12 +25,20 @@ export interface DrivesPayload {
 
 export const getDrives = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<DrivesPayload> => {
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<DrivesPayload> => {
     const db = getDb()
+    const vin = data?.vin
     const rows = await db
       .select()
       .from(driveSession)
-      .where(and(eq(driveSession.user_id, context.userId), isNotNull(driveSession.ended_at)))
+      .where(
+        and(
+          eq(driveSession.user_id, context.userId),
+          isNotNull(driveSession.ended_at),
+          vin ? eq(driveSession.vin, vin) : undefined,
+        ),
+      )
       .orderBy(desc(driveSession.started_at))
       .limit(500)
 

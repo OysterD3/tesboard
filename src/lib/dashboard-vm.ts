@@ -76,10 +76,16 @@ export function buildOverview(
   overview: OverviewPayload,
   readiness: DepartureReadinessPayload,
   drives: DrivesPayload,
+  activeVin?: string | null,
 ): OverviewVM {
-  const vw = overview.vehicles[0] ?? null
+  const vw =
+    (activeVin ? overview.vehicles.find((v) => v.vehicle.vin === activeVin) : null) ??
+    overview.vehicles[0] ??
+    null
   const latest = vw?.latest ?? null
-  const r0 = readiness.vehicles[0] ?? null
+  // readiness/drives are already scoped to the active car by the loader, so the
+  // first (only) readiness row is the active vehicle's.
+  const r0 = readiness.vehicles.find((r) => r.vin === activeVin) ?? readiness.vehicles[0] ?? null
 
   const soc = r0?.soc_pct ?? latest?.usable_battery_level ?? latest?.battery_level ?? null
   const rangeMi = r0?.est_range_mi ?? latest?.est_battery_range ?? latest?.battery_range ?? null
