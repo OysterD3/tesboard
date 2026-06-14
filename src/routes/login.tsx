@@ -41,7 +41,7 @@ function LoginPage() {
   return (
     <main className="page-wrap px-4 pb-8 pt-14">
       <section className="island-shell rise-in mx-auto max-w-md rounded-[2rem] px-6 py-10 sm:px-10">
-        <p className="island-kicker mb-3">Oyster Tesmate</p>
+        <p className="island-kicker mb-3">tesboard</p>
         <h1 className="display-title mb-5 text-3xl font-bold tracking-tight text-[var(--sea-ink)]">
           Sign in
         </h1>

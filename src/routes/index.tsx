@@ -13,7 +13,7 @@ function App() {
           Your charging and drives, finally in one place.
         </h1>
         <p className="mb-8 max-w-2xl text-base text-[var(--sea-ink-soft)] sm:text-lg">
-          Oyster Tesmate gently polls your Tesla via the official Fleet API to
+          tesboard gently polls your Tesla via the official Fleet API to
           track charging cost, range added, and a record of every drive — read-only,
           and it never wakes your car.
         </p>

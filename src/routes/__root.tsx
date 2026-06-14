@@ -24,7 +24,7 @@ export const Route = createRootRoute({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'Oyster Tesmate — Model Y Dashboard',
+        title: 'tesboard — Model Y Dashboard',
       },
     ],
     links: [
