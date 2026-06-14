@@ -32,7 +32,11 @@ import { detectEfficiencyDrop, detectSlowCharge } from './anomaly'
 import { classifyChargeLocation } from './geo'
 import type { ElectricityRate, Json } from '../types/db'
 
-/** Approximate usable pack energy (kWh) for a Model Y; used for drive energy estimates. */
+/**
+ * Approximate usable pack energy (kWh); used for drive energy estimates.
+ * Defaults to ~75 kWh (a typical Model Y / long-range pack). If your vehicle
+ * has a different pack size, adjust this to keep Wh/km efficiency accurate.
+ */
 const PACK_KWH = 75
 const SUPERCHARGER_KW_THRESHOLD = 25 // DC fast vs home AC; reconciliation overrides
 const SUSTAINED_SUPER_SNAPSHOTS = 2 // need >= N high-power readings to call it Supercharger

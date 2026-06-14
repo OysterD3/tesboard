@@ -73,12 +73,12 @@ A **blank TanStack Start** application (React, file-based router, SSR-capable). 
 
 ---
 
-## Tesla Model Y Dashboard (the actual product)
+## Tesla Dashboard (the actual product)
 
 Full design + setup: **`docs/design/tesla-dashboard.md`**. This section is the quick durable map.
 
 ### What it is
-A **read-only** personal dashboard for a Tesla Model Y on the official **Fleet API**. MVP: charging history, per-charge stats (cost + drivable range), drive records. **No vehicle commands** (read-only avoids the signed-command protocol + virtual-key pairing).
+A **read-only** personal dashboard for a Tesla on the official **Fleet API**. MVP: charging history, per-charge stats (cost + drivable range), drive records. **No vehicle commands** (read-only avoids the signed-command protocol + virtual-key pairing).
 
 ### The one architectural truth
 The Fleet API has **no trip-history endpoint** and **only bills Supercharger sessions**. So the app is a **sleep-aware poller → Postgres** + a **sessionization engine**, not an API proxy. The UI reads only from Postgres and **never wakes the car** (a `vehicle_data` read on a sleeping car returns 408 and does not wake it; we never call `wake_up`). Home-charge cost is **computed** = `energy_added × rate × loss_factor`; Supercharger cost is **authoritative** from `/dx/charging/history` (reconciliation fills it, `cost_source` distinguishes `tesla_billed` vs `computed`).
@@ -123,4 +123,4 @@ Deploy to **Cloudflare** (`wrangler login`; set worker name + **custom domain** 
 ### Status
 MVP code complete and **typechecks + builds clean + `wrangler deploy --dry-run` clean** against `.env` placeholders (DB layer = Drizzle/postgres-js, validated to bundle for workerd). Not yet run end-to-end (blocked on the manual Tesla onboarding above). Phase-2 features (cost analytics, efficiency, maps, degradation, exports) are scoped in the design doc §10.
 
-A multi-agent adversarial review (`tesla-dashboard-review` workflow) confirmed 15 issues; **all addressed** — notably: atomic refresh-token rotation (single-flight + compare-and-swap, guard against Tesla omitting `refresh_token`), partial unique indexes + a stale-session reaper so a vehicle can't hold two open sessions or leave one open forever, reset-aware `charge_energy_added` summation, sustained-power Supercharger classification, drive-energy clamping (no negative/quantized Wh/mi), DB-error capture in the poller, OAuth `state` constant-time compare + binding the flow to the initiating Supabase user, a browser/server Supabase project-ref mismatch guard, and forced token refresh on 401. **One deferral:** per-vehicle battery-pack size is still the `PACK_KWH = 75` constant in `poller.ts` (fine for a single Model Y; make it a `vehicle` column for multi-vehicle).
+A multi-agent adversarial review (`tesla-dashboard-review` workflow) confirmed 15 issues; **all addressed** — notably: atomic refresh-token rotation (single-flight + compare-and-swap, guard against Tesla omitting `refresh_token`), partial unique indexes + a stale-session reaper so a vehicle can't hold two open sessions or leave one open forever, reset-aware `charge_energy_added` summation, sustained-power Supercharger classification, drive-energy clamping (no negative/quantized Wh/mi), DB-error capture in the poller, OAuth `state` constant-time compare + binding the flow to the initiating Supabase user, a browser/server Supabase project-ref mismatch guard, and forced token refresh on 401. **One deferral:** per-vehicle battery-pack size is still the `PACK_KWH = 75` constant in `poller.ts` (fine for a single vehicle; make it a `vehicle` column for multi-vehicle).

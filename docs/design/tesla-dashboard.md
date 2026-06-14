@@ -1,4 +1,4 @@
-# tesboard — Read-Only Tesla Model Y Dashboard
+# tesboard — Read-Only Tesla Dashboard
 
 **Design doc v1 — 2026-06-14**
 Stack: TanStack Start (React 19.2, file-router `tsr generate`, Node/Nitro target) · Supabase Postgres (`tesboard`, ref `YOUR_SUPABASE_REF`) · Tesla Fleet API (read-only, **no vehicle commands**).
@@ -22,7 +22,7 @@ So the system is: a **sleep-aware background poller** writing raw snapshots to P
 
 - **Scope for charging history:** `/dx/charging/history` (the only authoritative Supercharger-cost source) sits behind the misleadingly named **`vehicle_charging_cmds`** scope, which covers *both* reading charging history *and* charge commands. Granting it does **not** force the virtual-key/command path — that's triggered only by actually *sending* signed commands or installing a telemetry config. **Decision (pending user OK):** request `openid offline_access vehicle_device_data vehicle_location vehicle_charging_cmds`, send zero commands → functionally read-only, no virtual key. Fallback: drop it and compute *all* costs from `charge_energy_added × rate`.
 - **Public key + partner registration are REQUIRED even for read-only.** Hosting the EC public key at `/.well-known/appspecific/com.tesla.3p.public-key.pem` + `POST /api/1/partner_accounts` are prerequisites for *any* Fleet API call (skip → `412 Precondition Failed`). Read-only only lets you skip **in-car virtual-key pairing** and the **Vehicle Command Proxy**.
-- **Polling does not drain the battery (Model Y, modern firmware).** Normal `vehicle_data` reads don't prevent sleep and don't wake a sleeping car (read on a sleeping car → `408`). Only `wake_up`/commands wake it. Poller must **never call `wake_up`** and must **back off when the car reports `asleep`/`offline`** (check the cheap `GET /api/1/vehicles` `state` first).
+- **Polling does not drain the battery (modern Tesla firmware).** Normal `vehicle_data` reads don't prevent sleep and don't wake a sleeping car (read on a sleeping car → `408`). Only `wake_up`/commands wake it. Poller must **never call `wake_up`** and must **back off when the car reports `asleep`/`offline`** (check the cheap `GET /api/1/vehicles` `state` first).
 - **Polling beats Telemetry for MVP.** Fleet Telemetry needs virtual-key pairing + a self-hosted mTLS server + Kafka. For one personal car, sleep-aware polling needs zero extra infra. Telemetry is a documented later upgrade.
 - **Datastore = Supabase Postgres** (`tesboard` already exists; resume it — currently INACTIVE).
 
