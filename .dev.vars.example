@@ -1,0 +1,50 @@
+# Local dev secrets for the Cloudflare Workers runtime (read by `vite dev` via
+# @cloudflare/vite-plugin and by `wrangler dev`). Copy to `.dev.vars` (gitignored).
+#
+# In PRODUCTION these are set with `wrangler secret put <NAME>` (secrets) or live
+# in wrangler.jsonc `vars` (non-secret). Do NOT commit real values here.
+#
+# Note: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are BUILD-TIME (read by Vite
+# from `.env`, baked into the client bundle) — they do NOT go here.
+
+# --- Tesla (secret) ---
+TESLA_CLIENT_SECRET=
+TESLA_PRIVATE_KEY_PEM=
+
+# --- App (secret) ---
+TOKEN_ENCRYPTION_KEY=
+CRON_TRIGGER_SECRET=
+SESSION_SECRET=
+
+# --- Database -----------------------------------------------------------------
+# RUNTIME data access goes through Cloudflare HYPERDRIVE, not a plain connection
+# string (raw postgres-js TCP hangs in workerd). For LOCAL dev, the Cloudflare
+# vite plugin reads the origin connection string from this specially-named var
+# (binding name = HYPERDRIVE) in the *process env* — the `pnpm dev` script loads
+# this file into the process env via dotenv-cli so it's picked up.
+# Use the SESSION pooler (port 5432), NOT the 6543 transaction pooler:
+#   postgresql://postgres.YOUR_SUPABASE_REF:<DB-PASSWORD>@aws-1-YOUR_REGION.pooler.supabase.com:5432/postgres
+CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=
+
+# Migrations only (`pnpm db:migrate`/`db:generate`) — these bypass Hyperdrive and
+# connect directly. Use the SESSION/direct connection (port 5432). drizzle-kit
+# reads DIRECT_URL first, then DATABASE_URL. Supabase → Connection string → "Session".
+DIRECT_URL=
+# Optional: only used as the migration fallback if DIRECT_URL is unset.
+DATABASE_URL=
+
+# --- Supabase (secret) ---
+# NOTE: data access is now Drizzle (DATABASE_URL above). The service-role key is
+# only used by `pnpm user:create` to provision the single login — the Worker
+# runtime no longer needs it.
+SUPABASE_SERVICE_ROLE_KEY=
+
+# --- Non-secret runtime vars (mirror wrangler.jsonc `vars` for local dev) ---
+APP_ORIGIN=http://localhost:3001
+TESLA_CLIENT_ID=
+TESLA_REDIRECT_URI=http://localhost:3001/api/auth/tesla/callback
+TESLA_APP_DOMAIN=localhost
+TESLA_FLEET_BASE_URL=https://fleet-api.prd.na.vn.cloud.tesla.com
+TESLA_OAUTH_AUDIENCE=https://fleet-api.prd.na.vn.cloud.tesla.com
+SUPABASE_URL=https://YOUR_SUPABASE_REF.supabase.co
+SUPABASE_ANON_KEY=

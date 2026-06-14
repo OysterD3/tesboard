@@ -1,0 +1,63 @@
+{
+  // Cloudflare Workers config for tesboard.
+  // Copy this file to `wrangler.jsonc` and fill in the placeholders below.
+  // (The real `wrangler.jsonc` is gitignored so your deployment-specific
+  // values never get committed.)
+  // Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tesboard",
+  "compatibility_date": "2025-09-02",
+  // nodejs_compat gives us node:crypto (AES-GCM, PKCE, timingSafeEqual) and
+  // populates process.env per-request from vars/secrets below.
+  "compatibility_flags": ["nodejs_compat"],
+  // Custom entry: serves the app (fetch) + runs the poller (scheduled).
+  "main": "src/worker.ts",
+
+  "observability": { "enabled": true },
+
+  // Native cron triggers replace an external scheduler.
+  //   "*/2 * * * *" → poll cycle (snapshots + sessionization)
+  //   "0 * * * *"   → reconcile Supercharger billing (hourly)
+  // Cloudflare's minimum granularity is 1 minute; raise the poll interval if you
+  // want finer drive resolution (costs more vehicle_data calls), or lower it to
+  // save against the ~$10/mo Fleet API credit.
+  "triggers": { "crons": ["*/2 * * * *", "0 * * * *"] },
+
+  // Hyperdrive: the connection path to Supabase Postgres. Raw postgres-js TCP
+  // hangs inside workerd, so Drizzle connects via this binding instead
+  // (src/worker.ts bridges env.HYPERDRIVE.connectionString → DATABASE_URL).
+  //   1. Create it (origin = Supabase SESSION pooler, port 5432 — NOT the 6543
+  //      transaction pooler; Hyperdrive does its own pooling):
+  //        wrangler hyperdrive create tesboard-db \
+  //          --connection-string="postgresql://postgres.<YOUR_SUPABASE_REF>:<DB-PASSWORD>@aws-1-<YOUR_REGION>.pooler.supabase.com:5432/postgres"
+  //   2. Paste the returned id below.
+  //   3. Local dev connection string comes from the env var
+  //      CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE (read from the
+  //      process env; the `pnpm dev` script loads .dev.vars into it via dotenv-cli).
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "<YOUR_HYPERDRIVE_ID>"
+    }
+  ],
+
+  // Non-secret runtime vars (safe to commit). Fill these in for your deployment.
+  // Set SECRETS separately with `wrangler secret put <NAME>` (see README / AGENTS.md):
+  //   TESLA_CLIENT_SECRET, TOKEN_ENCRYPTION_KEY, CRON_TRIGGER_SECRET, SESSION_SECRET,
+  //   (optional) TESLA_PRIVATE_KEY_PEM.  SUPABASE_SERVICE_ROLE_KEY is NOT a worker
+  //   secret — it's only used locally by `pnpm user:create`.
+  "vars": {
+    "APP_ORIGIN": "https://tesboard.<YOUR_SUBDOMAIN>.workers.dev",
+    "TESLA_CLIENT_ID": "<YOUR_TESLA_CLIENT_ID>",
+    "TESLA_REDIRECT_URI": "https://tesboard.<YOUR_SUBDOMAIN>.workers.dev/api/auth/tesla/callback",
+    "TESLA_APP_DOMAIN": "tesboard.<YOUR_SUBDOMAIN>.workers.dev",
+    // Region-specific Fleet API base; resolved per-account at link time via
+    // GET /api/1/users/region. NA shown as the default placeholder.
+    "TESLA_FLEET_BASE_URL": "https://fleet-api.prd.na.vn.cloud.tesla.com",
+    "TESLA_OAUTH_AUDIENCE": "https://fleet-api.prd.na.vn.cloud.tesla.com",
+    "SUPABASE_URL": "https://<YOUR_SUPABASE_REF>.supabase.co",
+    // Anon key is RLS-gated and safe to ship to the browser. Get it from
+    // Supabase → Project Settings → API.
+    "SUPABASE_ANON_KEY": "<YOUR_SUPABASE_ANON_KEY>"
+  }
+}

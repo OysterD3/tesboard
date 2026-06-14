@@ -1,0 +1,1015 @@
+{
+  "id": "89610b1d-891a-4ea4-a10d-41b7eb4bb9ee",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.charge_session": {
+      "name": "charge_session",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "charge_session_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "vin": {
+          "name": "vin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'home'"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_name": {
+          "name": "location_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lat": {
+          "name": "lat",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lng": {
+          "name": "lng",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "energy_added_kwh": {
+          "name": "energy_added_kwh",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "miles_added_rated": {
+          "name": "miles_added_rated",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_amount": {
+          "name": "cost_amount",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_currency": {
+          "name": "cost_currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_source": {
+          "name": "cost_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'computed'"
+        },
+        "rate_applied": {
+          "name": "rate_applied",
+          "type": "numeric(12, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tesla_charge_session_id": {
+          "name": "tesla_charge_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invoices": {
+          "name": "invoices",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "charge_session_vin_time_idx": {
+          "name": "charge_session_vin_time_idx",
+          "columns": [
+            {
+              "expression": "vin",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "charge_session_tesla_id_uidx": {
+          "name": "charge_session_tesla_id_uidx",
+          "columns": [
+            {
+              "expression": "tesla_charge_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"charge_session\".\"tesla_charge_session_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "charge_session_open_uidx": {
+          "name": "charge_session_open_uidx",
+          "columns": [
+            {
+              "expression": "vin",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"charge_session\".\"ended_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "charge_session_vin_vehicle_vin_fk": {
+          "name": "charge_session_vin_vehicle_vin_fk",
+          "tableFrom": "charge_session",
+          "tableTo": "vehicle",
+          "columnsFrom": [
+            "vin"
+          ],
+          "columnsTo": [
+            "vin"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "charge_session_user_id_users_id_fk": {
+          "name": "charge_session_user_id_users_id_fk",
+          "tableFrom": "charge_session",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.drive_session": {
+      "name": "drive_session",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "drive_session_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "vin": {
+          "name": "vin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_odometer": {
+          "name": "start_odometer",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_odometer": {
+          "name": "end_odometer",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_mi": {
+          "name": "distance_mi",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_s": {
+          "name": "duration_s",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_lat": {
+          "name": "start_lat",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_lng": {
+          "name": "start_lng",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_lat": {
+          "name": "end_lat",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_lng": {
+          "name": "end_lng",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_battery_level": {
+          "name": "start_battery_level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_battery_level": {
+          "name": "end_battery_level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "energy_used_kwh": {
+          "name": "energy_used_kwh",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wh_per_mi": {
+          "name": "wh_per_mi",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "drive_session_vin_time_idx": {
+          "name": "drive_session_vin_time_idx",
+          "columns": [
+            {
+              "expression": "vin",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "drive_session_open_uidx": {
+          "name": "drive_session_open_uidx",
+          "columns": [
+            {
+              "expression": "vin",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"drive_session\".\"ended_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "drive_session_vin_vehicle_vin_fk": {
+          "name": "drive_session_vin_vehicle_vin_fk",
+          "tableFrom": "drive_session",
+          "tableTo": "vehicle",
+          "columnsFrom": [
+            "vin"
+          ],
+          "columnsTo": [
+            "vin"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "drive_session_user_id_users_id_fk": {
+          "name": "drive_session_user_id_users_id_fk",
+          "tableFrom": "drive_session",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.electricity_rate": {
+      "name": "electricity_rate",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'flat'"
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "flat_rate": {
+          "name": "flat_rate",
+          "type": "numeric(12, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tou_schedule": {
+          "name": "tou_schedule",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loss_factor": {
+          "name": "loss_factor",
+          "type": "numeric(6, 3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1.1
+        },
+        "effective_from": {
+          "name": "effective_from",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "electricity_rate_user_id_users_id_fk": {
+          "name": "electricity_rate_user_id_users_id_fk",
+          "tableFrom": "electricity_rate",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.tesla_account": {
+      "name": "tesla_account",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_email": {
+          "name": "user_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fleet_api_base_url": {
+          "name": "fleet_api_base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linked_at": {
+          "name": "linked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "tesla_account_user_id_users_id_fk": {
+          "name": "tesla_account_user_id_users_id_fk",
+          "tableFrom": "tesla_account",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.tesla_charging_history_import": {
+      "name": "tesla_charging_history_import",
+      "schema": "",
+      "columns": {
+        "vin": {
+          "name": "vin",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_page": {
+          "name": "last_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_run_at": {
+          "name": "last_run_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "tesla_charging_history_import_vin_vehicle_vin_fk": {
+          "name": "tesla_charging_history_import_vin_vehicle_vin_fk",
+          "tableFrom": "tesla_charging_history_import",
+          "tableTo": "vehicle",
+          "columnsFrom": [
+            "vin"
+          ],
+          "columnsTo": [
+            "vin"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "tesla_charging_history_import_user_id_users_id_fk": {
+          "name": "tesla_charging_history_import_user_id_users_id_fk",
+          "tableFrom": "tesla_charging_history_import",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.tesla_token": {
+      "name": "tesla_token",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "access_token_enc": {
+          "name": "access_token_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "refresh_token_enc": {
+          "name": "refresh_token_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "tesla_token_user_id_users_id_fk": {
+          "name": "tesla_token_user_id_users_id_fk",
+          "tableFrom": "tesla_token",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.vehicle": {
+      "name": "vehicle",
+      "schema": "",
+      "columns": {
+        "vin": {
+          "name": "vin",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tesla_id": {
+          "name": "tesla_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vehicle_id": {
+          "name": "vehicle_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "car_type": {
+          "name": "car_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_state": {
+          "name": "last_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "vehicle_user_idx": {
+          "name": "vehicle_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "vehicle_user_id_users_id_fk": {
+          "name": "vehicle_user_id_users_id_fk",
+          "tableFrom": "vehicle",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.vehicle_snapshot": {
+      "name": "vehicle_snapshot",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "vehicle_snapshot_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "vin": {
+          "name": "vin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "odometer": {
+          "name": "odometer",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "battery_level": {
+          "name": "battery_level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "usable_battery_level": {
+          "name": "usable_battery_level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "battery_range": {
+          "name": "battery_range",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "est_battery_range": {
+          "name": "est_battery_range",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "charge_energy_added": {
+          "name": "charge_energy_added",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "charging_state": {
+          "name": "charging_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "charger_power": {
+          "name": "charger_power",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shift_state": {
+          "name": "shift_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "speed": {
+          "name": "speed",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gps_as_of": {
+          "name": "gps_as_of",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_json": {
+          "name": "raw_json",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "vehicle_snapshot_vin_time_idx": {
+          "name": "vehicle_snapshot_vin_time_idx",
+          "columns": [
+            {
+              "expression": "vin",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "recorded_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "vehicle_snapshot_vin_vehicle_vin_fk": {
+          "name": "vehicle_snapshot_vin_vehicle_vin_fk",
+          "tableFrom": "vehicle_snapshot",
+          "tableTo": "vehicle",
+          "columnsFrom": [
+            "vin"
+          ],
+          "columnsTo": [
+            "vin"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "vehicle_snapshot_user_id_users_id_fk": {
+          "name": "vehicle_snapshot_user_id_users_id_fk",
+          "tableFrom": "vehicle_snapshot",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

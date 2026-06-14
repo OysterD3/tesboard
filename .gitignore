@@ -1,0 +1,29 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+.env
+.nitro
+.tanstack
+.wrangler
+.output
+.vinxi
+__unconfig*
+todos.json
+
+# Tesla key material — NEVER commit the private key
+secrets/
+
+# Cloudflare local dev secrets
+.dev.vars
+.wrangler/
+
+# Deployment-specific config (copy from wrangler.jsonc.example and fill in).
+# Kept out of git so your domain / project ids / keys aren't published.
+wrangler.jsonc
+
+# IDE + local agent/skill caches
+.idea/
+.claude/
+.agents/

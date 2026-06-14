@@ -1,0 +1,81 @@
+/**
+ * Server-only environment access.
+ *
+ * Every value here is read from `process.env` at CALL TIME (inside a function),
+ * never at module scope, so the values are resolved per-request on the server
+ * and are never captured into a client bundle. Do NOT import this from a file
+ * that runs on the client — these names have no `VITE_` prefix on purpose.
+ */
+
+function required(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable: ${name}. ` +
+        `Copy .env.example to .env and fill it in.`,
+    )
+  }
+  return value
+}
+
+function optional(name: string, fallback = ''): string {
+  return process.env[name] ?? fallback
+}
+
+export const serverEnv = {
+  tesla: () => ({
+    clientId: required('TESLA_CLIENT_ID'),
+    clientSecret: required('TESLA_CLIENT_SECRET'),
+    redirectUri: required('TESLA_REDIRECT_URI'),
+    appDomain: required('TESLA_APP_DOMAIN'),
+    fleetBaseUrl: required('TESLA_FLEET_BASE_URL'),
+    oauthAudience: optional('TESLA_OAUTH_AUDIENCE', required('TESLA_FLEET_BASE_URL')),
+    privateKeyPem: optional('TESLA_PRIVATE_KEY_PEM'),
+  }),
+  app: () => ({
+    origin: required('APP_ORIGIN'),
+    tokenEncryptionKey: required('TOKEN_ENCRYPTION_KEY'),
+    cronTriggerSecret: required('CRON_TRIGGER_SECRET'),
+  }),
+  // Public Supabase config (url + anon key) — all the user-scoped client needs.
+  // Deliberately does NOT require the service-role key, so the login/dashboard
+  // pages work before the (secret) service-role key is configured.
+  supabase: () => {
+    const url = required('SUPABASE_URL')
+    const anonKey = required('SUPABASE_ANON_KEY')
+    // The @supabase/ssr session cookie name is derived from the project ref in
+    // the URL host. If the browser (VITE_*) and server URLs point at different
+    // projects, the server reads a different cookie name than the browser wrote
+    // and auth silently fails (endless /login loop). Fail fast instead.
+    const viteUrl = process.env.VITE_SUPABASE_URL
+    if (viteUrl && new URL(viteUrl).host !== new URL(url).host) {
+      throw new Error(
+        'SUPABASE_URL and VITE_SUPABASE_URL point at different projects — ' +
+          'they must be the same Supabase project, or auth cookies will not match.',
+      )
+    }
+    return { url, anonKey }
+  },
+  // Direct Postgres access for Drizzle (postgres-js over the Supabase pooler).
+  // The connection string carries the DB password — keep it server-only.
+  database: () => ({ url: required('DATABASE_URL') }),
+}
+
+/** Tesla's well-known OAuth endpoints (region-independent). */
+export const TESLA_OAUTH = {
+  authorize: 'https://auth.tesla.com/oauth2/v3/authorize',
+  token: 'https://auth.tesla.com/oauth2/v3/token',
+} as const
+
+/**
+ * OAuth scopes. `vehicle_charging_cmds` is required to READ /dx/charging/history
+ * (authoritative Supercharger cost) — we never send commands, so this stays
+ * functionally read-only and needs no virtual-key pairing.
+ */
+export const TESLA_SCOPES = [
+  'openid',
+  'offline_access',
+  'vehicle_device_data',
+  'vehicle_location',
+  'vehicle_charging_cmds',
+] as const
