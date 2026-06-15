@@ -43,6 +43,8 @@ export interface TeslaDriveState {
   speed?: number | null
   shift_state?: string | null
   gps_as_of?: number
+  /** Drive-state reading time, Unix epoch in **milliseconds**. */
+  timestamp?: number
   power?: number
 }
 

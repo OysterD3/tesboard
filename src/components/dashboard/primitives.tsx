@@ -5,6 +5,7 @@
  */
 import type { CSSProperties, ReactNode } from 'react'
 import { hexToRgba, round } from './theme'
+import { cn } from '../../lib/utils'
 
 const CARD_BASE: CSSProperties = {
   background: 'var(--card,#fff)',
@@ -16,13 +17,17 @@ export function Card({
   children,
   radius = 20,
   style,
+  className,
 }: {
   children: ReactNode
   radius?: number
   style?: CSSProperties
+  className?: string
 }) {
   return (
-    <div style={{ ...CARD_BASE, borderRadius: radius, ...style }}>{children}</div>
+    <div className={cn(className)} style={{ ...CARD_BASE, borderRadius: radius, ...style }}>
+      {children}
+    </div>
   )
 }
 
@@ -236,15 +241,18 @@ export function ChargeCurve({
   axisMax,
   color,
   socRange,
+  taperFrac,
 }: {
   curve: number[]
   axisMax: number
   color: string
   socRange: string
+  /** Fractional position (0–1) of the taper onset, or null to hide the marker (flat AC). */
+  taperFrac?: number | null
 }) {
   const { line, area } = buildChart(curve, axisMax)
-  const peakIdx = curve.indexOf(Math.max(...curve))
-  const frac = curve.length > 1 ? peakIdx / (curve.length - 1) : 0
+  const hasTaper = taperFrac != null
+  const frac = hasTaper ? taperFrac : 0
   const taperX = round(frac * 280, 1)
   const taperLeft = `calc(14px + (100% - 28px) * ${round(frac, 4)})`
   return (
@@ -267,7 +275,7 @@ export function ChargeCurve({
         </defs>
         <line x1="0" y1="36" x2="280" y2="36" stroke="var(--td,#86868b)" strokeOpacity="0.16" strokeDasharray="2 5" />
         <line x1="0" y1="73" x2="280" y2="73" stroke="var(--td,#86868b)" strokeOpacity="0.16" strokeDasharray="2 5" />
-        <line x1={taperX} y1="0" x2={taperX} y2="110" stroke={color} strokeOpacity="0.45" strokeWidth="1" strokeDasharray="3 3" />
+        {hasTaper && <line x1={taperX} y1="0" x2={taperX} y2="110" stroke={color} strokeOpacity="0.45" strokeWidth="1" strokeDasharray="3 3" />}
         <path d={area} fill="url(#cArea)" style={{ animation: 'drawArea 1s ease' }} />
         <path
           d={line}
@@ -279,20 +287,22 @@ export function ChargeCurve({
           style={{ strokeDasharray: 600, strokeDashoffset: 600, animation: 'drawRoute 1.4s .1s ease forwards' }}
         />
       </svg>
-      <span
-        style={{
-          position: 'absolute',
-          top: 6,
-          left: taperLeft,
-          transform: 'translateX(-50%)',
-          fontSize: 9,
-          fontWeight: 600,
-          color,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        taper
-      </span>
+      {hasTaper && (
+        <span
+          style={{
+            position: 'absolute',
+            top: 6,
+            left: taperLeft,
+            transform: 'translateX(-50%)',
+            fontSize: 9,
+            fontWeight: 600,
+            color,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          taper
+        </span>
+      )}
       <span style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, fontWeight: 600, color: 'var(--td,#86868b)' }}>
         {axisMax} kW
       </span>

@@ -33,6 +33,12 @@ DIRECT_URL=
 # Optional: only used as the migration fallback if DIRECT_URL is unset.
 DATABASE_URL=
 
+# One-time TeslaMate migration (`pnpm import:teslamate <email>`). Points at your
+# self-hosted TeslaMate Postgres; the importer reads it and writes to tesboard
+# via DIRECT_URL above. Not needed at runtime. Example (the docker-compose stack):
+#   postgresql://teslamate:password@localhost:5432/teslamate
+TESLAMATE_DATABASE_URL=
+
 # --- Supabase (secret) ---
 # NOTE: data access is now Drizzle (DATABASE_URL above). The service-role key is
 # only used by `pnpm user:create` to provision the single login — the Worker

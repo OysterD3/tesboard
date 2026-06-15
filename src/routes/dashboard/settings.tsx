@@ -1,4 +1,4 @@
-import { createFileRoute, getRouteApi, useRouter } from '@tanstack/react-router'
+import { Link, createFileRoute, getRouteApi, useRouter } from '@tanstack/react-router'
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import {
@@ -265,10 +265,19 @@ function RateForm({
         </div>
       </Card>
 
+      <Link to="/dashboard/geofences" search={(prev) => prev} style={{ textDecoration: 'none' }}>
+        <Card radius={22} style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>Geofences &amp; per-zone billing</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>Named zones with their own electricity rate →</span>
+          </div>
+        </Card>
+      </Link>
+
       <Card radius={22} style={{ padding: 20 }}>
         <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>Home location</span>
         <p style={{ margin: '6px 0 16px', fontSize: 12, fontWeight: 500, color: TD, lineHeight: 1.5 }}>
-          Classify charges home vs away by location. Coordinates stay in your database.
+          Classify charges home vs away by location. Coordinates stay in your database. For multiple zones, use Geofences above.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

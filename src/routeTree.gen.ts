@@ -11,15 +11,16 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
-import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard/settings'
 import { Route as DashboardLocationsRouteImport } from './routes/dashboard/locations'
 import { Route as DashboardInsightsRouteImport } from './routes/dashboard/insights'
+import { Route as DashboardGeofencesRouteImport } from './routes/dashboard/geofences'
 import { Route as DashboardFlagsRouteImport } from './routes/dashboard/flags'
 import { Route as DashboardDrivesRouteImport } from './routes/dashboard/drives'
 import { Route as DashboardChargingRouteImport } from './routes/dashboard/charging'
+import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard/analytics'
 import { Route as ApiCronPollRouteImport } from './routes/api/cron/poll'
 import { Route as ApiAuthTeslaLoginRouteImport } from './routes/api/auth/tesla/login'
 import { Route as ApiAuthTeslaCallbackRouteImport } from './routes/api/auth/tesla/callback'
@@ -32,11 +33,6 @@ const LoginRoute = LoginRouteImport.update({
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -64,6 +60,11 @@ const DashboardInsightsRoute = DashboardInsightsRouteImport.update({
   path: '/insights',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardGeofencesRoute = DashboardGeofencesRouteImport.update({
+  id: '/geofences',
+  path: '/geofences',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardFlagsRoute = DashboardFlagsRouteImport.update({
   id: '/flags',
   path: '/flags',
@@ -77,6 +78,11 @@ const DashboardDrivesRoute = DashboardDrivesRouteImport.update({
 const DashboardChargingRoute = DashboardChargingRouteImport.update({
   id: '/charging',
   path: '/charging',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => DashboardRoute,
 } as any)
 const ApiCronPollRoute = ApiCronPollRouteImport.update({
@@ -97,12 +103,13 @@ const ApiAuthTeslaCallbackRoute = ApiAuthTeslaCallbackRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/login': typeof LoginRoute
+  '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/charging': typeof DashboardChargingRoute
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
+  '/dashboard/geofences': typeof DashboardGeofencesRoute
   '/dashboard/insights': typeof DashboardInsightsRoute
   '/dashboard/locations': typeof DashboardLocationsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -113,11 +120,12 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
   '/login': typeof LoginRoute
+  '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/charging': typeof DashboardChargingRoute
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
+  '/dashboard/geofences': typeof DashboardGeofencesRoute
   '/dashboard/insights': typeof DashboardInsightsRoute
   '/dashboard/locations': typeof DashboardLocationsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -129,12 +137,13 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/login': typeof LoginRoute
+  '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/charging': typeof DashboardChargingRoute
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
+  '/dashboard/geofences': typeof DashboardGeofencesRoute
   '/dashboard/insights': typeof DashboardInsightsRoute
   '/dashboard/locations': typeof DashboardLocationsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -147,12 +156,13 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/about'
     | '/dashboard'
     | '/login'
+    | '/dashboard/analytics'
     | '/dashboard/charging'
     | '/dashboard/drives'
     | '/dashboard/flags'
+    | '/dashboard/geofences'
     | '/dashboard/insights'
     | '/dashboard/locations'
     | '/dashboard/settings'
@@ -163,11 +173,12 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/about'
     | '/login'
+    | '/dashboard/analytics'
     | '/dashboard/charging'
     | '/dashboard/drives'
     | '/dashboard/flags'
+    | '/dashboard/geofences'
     | '/dashboard/insights'
     | '/dashboard/locations'
     | '/dashboard/settings'
@@ -178,12 +189,13 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/about'
     | '/dashboard'
     | '/login'
+    | '/dashboard/analytics'
     | '/dashboard/charging'
     | '/dashboard/drives'
     | '/dashboard/flags'
+    | '/dashboard/geofences'
     | '/dashboard/insights'
     | '/dashboard/locations'
     | '/dashboard/settings'
@@ -195,7 +207,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AboutRoute: typeof AboutRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiCronPollRoute: typeof ApiCronPollRoute
@@ -217,13 +228,6 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -261,6 +265,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardInsightsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/geofences': {
+      id: '/dashboard/geofences'
+      path: '/geofences'
+      fullPath: '/dashboard/geofences'
+      preLoaderRoute: typeof DashboardGeofencesRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/flags': {
       id: '/dashboard/flags'
       path: '/flags'
@@ -280,6 +291,13 @@ declare module '@tanstack/react-router' {
       path: '/charging'
       fullPath: '/dashboard/charging'
       preLoaderRoute: typeof DashboardChargingRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/analytics': {
+      id: '/dashboard/analytics'
+      path: '/analytics'
+      fullPath: '/dashboard/analytics'
+      preLoaderRoute: typeof DashboardAnalyticsRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/api/cron/poll': {
@@ -307,9 +325,11 @@ declare module '@tanstack/react-router' {
 }
 
 interface DashboardRouteChildren {
+  DashboardAnalyticsRoute: typeof DashboardAnalyticsRoute
   DashboardChargingRoute: typeof DashboardChargingRoute
   DashboardDrivesRoute: typeof DashboardDrivesRoute
   DashboardFlagsRoute: typeof DashboardFlagsRoute
+  DashboardGeofencesRoute: typeof DashboardGeofencesRoute
   DashboardInsightsRoute: typeof DashboardInsightsRoute
   DashboardLocationsRoute: typeof DashboardLocationsRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
@@ -317,9 +337,11 @@ interface DashboardRouteChildren {
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
+  DashboardAnalyticsRoute: DashboardAnalyticsRoute,
   DashboardChargingRoute: DashboardChargingRoute,
   DashboardDrivesRoute: DashboardDrivesRoute,
   DashboardFlagsRoute: DashboardFlagsRoute,
+  DashboardGeofencesRoute: DashboardGeofencesRoute,
   DashboardInsightsRoute: DashboardInsightsRoute,
   DashboardLocationsRoute: DashboardLocationsRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
@@ -332,7 +354,6 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
   DashboardRoute: DashboardRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiCronPollRoute: ApiCronPollRoute,

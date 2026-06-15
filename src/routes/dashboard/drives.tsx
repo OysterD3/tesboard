@@ -2,6 +2,7 @@ import { createFileRoute, getRouteApi } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { Card, EmptyCard, Icon, ListRow, RowDot, ViewTitle } from '../../components/dashboard/primitives'
+import { VirtualList } from '../../components/dashboard/VirtualList'
 import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
@@ -95,37 +96,38 @@ function DrivesPage() {
         </Card>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {list.map((d) => {
+      <VirtualList
+        items={list}
+        getKey={(d) => d.id}
+        renderRow={(d) => {
           const active = d.id === sel?.id
           return (
             <ListRow
-              key={d.id}
               active={active}
               color={COLOR}
               isDark={isDark}
               onClick={() => setSelId(d.id)}
               left={
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
                   <RowDot active={active} color={COLOR} isDark={isDark}>
                     <Icon d={ICON.arrow} size={18} color={active ? COLOR : TD} />
                   </RowDot>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, textAlign: 'left' }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>{d.title}</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{d.when}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, textAlign: 'left', minWidth: 0 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: TD, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.when}</span>
                   </div>
                 </div>
               }
               right={
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flex: 'none', paddingLeft: 12 }}>
                   <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: TX }}>{fmtDist(u, d.distKm, 1)} {distUnit(u)}</span>
                   <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{d.durMin} min</span>
                 </div>
               }
             />
           )
-        })}
-      </div>
+        }}
+      />
     </div>
   )
 }

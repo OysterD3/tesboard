@@ -13,6 +13,7 @@ export const SECTION = {
   drives: '#6366f1',
   charging: '#f59e0b',
   insights: '#14b8a6',
+  analytics: '#0ea5e9',
   settings: '#8b5cf6',
 } as const
 
@@ -105,4 +106,10 @@ export const ICON = {
   moon: 'M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z',
   sparkles:
     'M12 2v6 M5.6 5.6l4.2 4.2 M2 12h6 M5.6 18.4l4.2-4.2 M12 22v-6 M18.4 18.4l-4.2-4.2 M22 12h-6 M18.4 5.6l-4.2 4.2',
+  analytics: 'M3 3v18h18 M7 14v4 M12 9v9 M17 12v6',
+  battery:
+    'M3 8h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z M22 11v2 M6 11v2',
+  gauge: 'M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M13.4 10.6 19 5 M3 12a9 9 0 0 1 18 0',
+  thermometer: 'M14 14.76V5a2 2 0 1 0-4 0v9.76a4 4 0 1 0 4 0z',
+  pin: 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
 } as const

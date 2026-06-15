@@ -70,6 +70,9 @@ export interface OverviewVM {
   readyTitle: string | null
   lastDrive: { title: string; distKm: number; durMin: number; effWhKm: number | null } | null
   syncedLabel: string | null
+  /** Last known GPS position [lat, lng], or null if the latest snapshot has no fix. */
+  location: [number, number] | null
+  locationWhen: string | null
 }
 
 export function buildOverview(
@@ -115,7 +118,13 @@ export function buildOverview(
     hasSnapshot: !!latest,
     vehicleName: vw?.vehicle.display_name ?? null,
     trim: vw?.vehicle.car_type ?? null,
-    statusLabel: r0?.is_charging ? 'Charging' : latest?.shift_state ? 'Driving' : 'Parked',
+    // Tesla reports shift_state "P" when parked (a truthy string), so only D/R/N
+    // mean actually in gear — matches the poller's drive detection.
+    statusLabel: r0?.is_charging
+      ? 'Charging'
+      : latest?.shift_state === 'D' || latest?.shift_state === 'R' || latest?.shift_state === 'N'
+        ? 'Driving'
+        : 'Parked',
     soc,
     rangeKm,
     odoKm,
@@ -127,6 +136,11 @@ export function buildOverview(
     readyTitle,
     lastDrive,
     syncedLabel: relativeAgo(r0?.as_of ?? latest?.recorded_at ?? null),
+    location:
+      latest?.latitude != null && latest?.longitude != null
+        ? [latest.latitude, latest.longitude]
+        : null,
+    locationWhen: relativeAgo(latest?.gps_as_of ?? latest?.recorded_at ?? null),
   }
 }
 
@@ -154,12 +168,18 @@ export function buildDrives(payload: DrivesPayload): DriveVM[] {
     const endpoints: [number, number][] = []
     if (d.start_lat != null && d.start_lng != null) endpoints.push([d.start_lat, d.start_lng])
     if (d.end_lat != null && d.end_lng != null) endpoints.push([d.end_lat, d.end_lng])
+    // Prefer a place label ("A → B") as the title; fall back to the timestamp when
+    // no address/geofence is known (e.g. live drives before reverse-geocode backfill).
+    const s = d.startLocation
+    const e = d.endLocation
+    const place = s && e ? (s === e ? s : `${s} → ${e}`) : e || s || null
     return {
       id: String(d.id),
       driveId: d.id,
-      title: fmtWhen(d.started_at),
-      when:
-        d.start_battery_level != null && d.end_battery_level != null
+      title: place ?? fmtWhen(d.started_at),
+      when: place
+        ? fmtWhen(d.started_at)
+        : d.start_battery_level != null && d.end_battery_level != null
           ? `${d.start_battery_level}% → ${d.end_battery_level}%`
           : new Date(d.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       distKm: round(distKm, 1),
@@ -196,7 +216,7 @@ export function buildSessions(payload: ChargingPayload): SessionVM[] {
     return {
       id: String(s.id),
       sessionId: s.id,
-      loc: s.location_name ?? (isFast ? 'Supercharger' : 'Charge session'),
+      loc: s.locationName ?? s.location_name ?? (isFast ? 'Supercharger' : 'Charge session'),
       when: fmtWhen(s.started_at),
       type: isFast ? 'DC fast' : 'AC',
       isFast,

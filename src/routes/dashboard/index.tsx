@@ -1,8 +1,10 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Card, BatteryRing, EmptyCard, Icon } from '../../components/dashboard/primitives'
+import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON } from '../../components/dashboard/theme'
 import { buildOverview } from '../../lib/dashboard-vm'
+import { cn } from '../../lib/utils'
 import {
   distUnit,
   effFromWhKm,
@@ -25,7 +27,7 @@ const TX = 'var(--tx,#1d1d1f)'
 
 function OverviewPage() {
   const { overview, readiness, drives, linked, activeVin } = dashApi.useLoaderData()
-  const { units: u, accent } = useDash()
+  const { units: u, accent, theme } = useDash()
   const vm = buildOverview(overview, readiness, drives, activeVin)
   const navigate = useNavigate()
 
@@ -50,21 +52,46 @@ function OverviewPage() {
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Battery */}
-      <Card radius={24} style={{ padding: '22px 22px 26px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: TX }}>Battery</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 600, color: TD, padding: '6px 12px', borderRadius: 30, background: 'var(--track,#f0f0f3)' }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34c759' }} />
+      <Card radius={24} className="px-[22px] pt-[22px] pb-[26px]">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-foreground">Battery</span>
+          <span className="inline-flex items-center gap-[7px] rounded-full bg-muted px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+            <span
+              className={cn(
+                'size-[7px] rounded-full',
+                vm.statusLabel === 'Charging'
+                  ? 'bg-[#34c759]'
+                  : vm.statusLabel === 'Driving'
+                    ? 'bg-[#0a84ff]'
+                    : 'bg-muted-foreground',
+              )}
+            />
             {vm.statusLabel}
           </span>
         </div>
         <BatteryRing soc={vm.soc} accent={accent} />
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 7, marginTop: 10, paddingTop: 18, borderTop: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
-          <span style={{ fontSize: 15, fontWeight: 500, color: TD }}>Estimated range</span>
-          <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>{vm.rangeKm != null ? fmtDist(u, vm.rangeKm) : '—'}</span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: TD }}>{distUnit(u)}</span>
+        <div className="mt-2.5 flex items-baseline justify-center gap-[7px] border-t border-border pt-[18px]">
+          <span className="text-[15px] font-medium text-muted-foreground">Estimated range</span>
+          <span className="text-[22px] font-bold tracking-[-0.02em] text-foreground">{vm.rangeKm != null ? fmtDist(u, vm.rangeKm) : '—'}</span>
+          <span className="text-sm font-semibold text-muted-foreground">{distUnit(u)}</span>
         </div>
       </Card>
+
+      {/* Location */}
+      {vm.location && (
+        <Card radius={20} style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px 0' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 30, height: 30, borderRadius: 9, background: hexToRgba(accent, 0.14), display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+                <Icon d="M12 21s-7-5.686-7-11a7 7 0 1 1 14 0c0 5.314-7 11-7 11z M12 10a1 1 0 1 0 0 .01" size={16} color={accent} />
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: TX }}>Location</span>
+            </span>
+            {vm.locationWhen && <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{vm.locationWhen}</span>}
+          </div>
+          <LeafletMap points={[vm.location]} color={accent} isDark={theme === 'dark'} height={220} />
+        </Card>
+      )}
 
       {/* Departure readiness */}
       {vm.ready != null && (

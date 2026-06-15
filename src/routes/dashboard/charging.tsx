@@ -2,6 +2,7 @@ import { createFileRoute, getRouteApi } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { Card, ChargeCurve, EmptyCard, ListRow, RowDot, ViewTitle } from '../../components/dashboard/primitives'
+import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, SECTION } from '../../components/dashboard/theme'
 import { buildSessions } from '../../lib/dashboard-vm'
@@ -86,11 +87,11 @@ function ChargingPage() {
       {sel && (
         <Card radius={22} style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>{sel.loc}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sel.loc}</span>
               <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{sel.when}</span>
             </div>
-            <span style={{ fontSize: 11, fontWeight: 600, color: COLOR, padding: '7px 13px', borderRadius: 30, background: hexToRgba(COLOR, isDark ? 0.18 : 0.1), whiteSpace: 'nowrap' }}>{sel.type}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: COLOR, padding: '7px 13px', borderRadius: 30, background: hexToRgba(COLOR, isDark ? 0.18 : 0.1), whiteSpace: 'nowrap', flex: 'none', marginLeft: 12 }}>{sel.type}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, margin: '10px 0 14px' }}>
             <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Peak</span>
@@ -99,7 +100,7 @@ function ChargingPage() {
           </div>
 
           {detail && detail.curve.length >= 2 && axisMax != null ? (
-            <ChargeCurve curve={detail.curve} axisMax={axisMax} color={COLOR} socRange={socRange} />
+            <ChargeCurve curve={detail.curve} axisMax={axisMax} color={COLOR} socRange={socRange} taperFrac={detail.taperFrac} />
           ) : (
             <div style={{ height: 128, borderRadius: 14, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f7f7f9)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 16 }}>
               <span style={{ fontSize: 11, fontWeight: 500, color: TD }}>
@@ -123,39 +124,40 @@ function ChargingPage() {
       )}
 
       <span style={{ fontSize: 13, fontWeight: 600, color: TD, paddingLeft: 2 }}>History</span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {list.map((c) => {
+      <VirtualList
+        items={list}
+        getKey={(c) => c.id}
+        renderRow={(c) => {
           const active = c.id === sel?.id
           return (
             <ListRow
-              key={c.id}
               active={active}
               color={COLOR}
               isDark={isDark}
               onClick={() => setSelId(c.id)}
               left={
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
                   <RowDot active={active} color={COLOR} isDark={isDark}>
                     <svg width="17" height="17" viewBox="0 0 24 24" fill={active ? COLOR : TD} stroke="none">
                       <path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13z" />
                     </svg>
                   </RowDot>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, textAlign: 'left' }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>{c.loc}</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{c.when} · {c.type}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, textAlign: 'left', minWidth: 0 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.loc}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: TD, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.when} · {c.type}</span>
                   </div>
                 </div>
               }
               right={
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flex: 'none', paddingLeft: 12 }}>
                   <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: TX }}>{c.addedKwh != null ? `+${c.addedKwh} kWh` : '—'}</span>
                   <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{money(c.cost, c.currency)}</span>
                 </div>
               }
             />
           )
-        })}
-      </div>
+        }}
+      />
     </div>
   )
 }

@@ -2,12 +2,9 @@ import {
   HeadContent,
   Scripts,
   createRootRoute,
-  useRouterState,
 } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
-import Footer from '../components/Footer'
-import Header from '../components/Header'
 
 import appCss from '../styles.css?url'
 
@@ -38,11 +35,8 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-  // The dashboard + login are self-contained app shells (their own header /
-  // bottom nav), so the marketing chrome is hidden there.
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const bareShell = pathname.startsWith('/dashboard') || pathname.startsWith('/login')
-
+  // Every route (dashboard + login) is a self-contained app shell with its own
+  // chrome, so the root document just hosts the theme init + the page itself.
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -50,9 +44,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
-        {!bareShell && <Header />}
         {children}
-        {!bareShell && <Footer />}
         <TanStackDevtools
           config={{
             position: 'bottom-right',

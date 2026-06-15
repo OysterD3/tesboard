@@ -1,13 +1,53 @@
 
 @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
+@import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
 @theme {
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
 }
 
+/**
+ * shadcn/ui token bridge. The dashboard is themed at runtime by DashboardProvider,
+ * which injects --bg/--card/--tx/--td/--border/--track/--ac inline on the dashboard
+ * root (per light/dark + the user's accent). We alias shadcn's semantic color tokens
+ * to those vars with `@theme inline` so utilities like `bg-card text-foreground
+ * text-muted-foreground border-border bg-primary` emit `var(--card)` etc. directly —
+ * they resolve live against the active theme/accent, with a static fallback for use
+ * outside the dashboard (login/marketing). `--brand` is the vivid accent; shadcn's
+ * `--accent` keeps its own meaning (a subtle hover surface).
+ */
+@theme inline {
+  --color-background: var(--bg, #f5f5f7);
+  --color-foreground: var(--tx, #1d1d1f);
+  --color-card: var(--card, #ffffff);
+  --color-card-foreground: var(--tx, #1d1d1f);
+  --color-popover: var(--card, #ffffff);
+  --color-popover-foreground: var(--tx, #1d1d1f);
+  --color-primary: var(--ac, #3b82f6);
+  --color-primary-foreground: #ffffff;
+  --color-brand: var(--ac, #3b82f6);
+  --color-secondary: var(--track, #f0f0f3);
+  --color-secondary-foreground: var(--tx, #1d1d1f);
+  --color-muted: var(--track, #f0f0f3);
+  --color-muted-foreground: var(--td, #86868b);
+  --color-accent: var(--track, #f0f0f3);
+  --color-accent-foreground: var(--tx, #1d1d1f);
+  --color-destructive: #f43f5e;
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--border, rgba(0, 0, 0, 0.07));
+  --color-input: var(--border, rgba(0, 0, 0, 0.12));
+  --color-ring: var(--ac, #3b82f6);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 :root {
+  --radius: 0.625rem;
   --sea-ink: #173a40;
   --sea-ink-soft: #416166;
   --lagoon: #4fb8b2;

@@ -14,6 +14,12 @@ import { getDrives } from '../functions/drives.functions'
 import { getCharging } from '../functions/charging.functions'
 import { getRate } from '../functions/rate.functions'
 import { getPhantomDrain } from '../functions/insights.functions'
+import { getBatteryHealth } from '../functions/battery.functions'
+import { getEfficiencyAnalysis } from '../functions/efficiency-analysis.functions'
+import { getMileage } from '../functions/mileage.functions'
+import { getStates } from '../functions/states.functions'
+import { getTimeline } from '../functions/timeline.functions'
+import { getGeofences } from '../functions/geofences.functions'
 import { DashboardProvider, useDash } from '../components/dashboard/DashboardProvider'
 import { Icon, Card } from '../components/dashboard/primitives'
 import { ICON, SECTION, themeVars } from '../components/dashboard/theme'
@@ -59,32 +65,31 @@ export const Route = createFileRoute('/dashboard')({
     return { auth: status }
   },
   loaderDeps: ({ search }) => ({ vin: search.vin }),
-  loader: async ({ context, deps, location }) => {
+  loader: async ({ context, deps }) => {
     const linked = context.auth.teslaLinked
 
     // Overview carries the full vehicle list (for the switcher) regardless of vin.
     const overview = await getOverview({ data: { vin: deps.vin } })
+    // Resolve the active car server-side (requested vin if owned, else the most
+    // recently active). `vin` stays OUT of the URL by default — it's only added
+    // when the user explicitly switches cars via the picker. So the parent's data
+    // is always scoped to one car while the URL stays clean (`/dashboard`).
     const activeVin = resolveActiveVin(overview.vehicles, deps.vin)
-
-    // Pin the resolved vin into the URL so every tab + child loader scopes to the
-    // same car (and the choice is shareable). Preserves the current path + search.
-    if (activeVin && deps.vin !== activeVin) {
-      const sp = new URLSearchParams()
-      for (const [k, v] of Object.entries(location.search)) {
-        if (typeof v === 'string') sp.set(k, v)
-      }
-      sp.set('vin', activeVin)
-      throw redirect({ href: `${location.pathname}?${sp.toString()}`, replace: true })
-    }
-
     const vin = activeVin ?? undefined
-    const [readiness, drives, charging, rate, phantom] = await Promise.all([
-      getDepartureReadiness({ data: { vin } }),
-      getDrives({ data: { vin } }),
-      getCharging({ data: { vin } }),
-      getRate(),
-      getPhantomDrain({ data: { vin } }),
-    ])
+    const [readiness, drives, charging, rate, phantom, battery, efficiency, mileage, states, timeline, geofences] =
+      await Promise.all([
+        getDepartureReadiness({ data: { vin } }),
+        getDrives({ data: { vin } }),
+        getCharging({ data: { vin } }),
+        getRate(),
+        getPhantomDrain({ data: { vin } }),
+        getBatteryHealth({ data: { vin } }),
+        getEfficiencyAnalysis({ data: { vin } }),
+        getMileage({ data: { vin, period: 'month' } }),
+        getStates({ data: { vin, days: 30 } }),
+        getTimeline({ data: { vin, days: 30 } }),
+        getGeofences(),
+      ])
     return {
       auth: context.auth,
       linked,
@@ -94,6 +99,12 @@ export const Route = createFileRoute('/dashboard')({
       charging,
       rate,
       phantom,
+      battery,
+      efficiency,
+      mileage,
+      states,
+      timeline,
+      geofences,
       activeVin,
     }
   },
@@ -109,6 +120,7 @@ const NAV = [
   { key: 'drives', to: '/dashboard/drives', exact: false, label: 'Drives', icon: ICON.drives, bolt: false, color: SECTION.drives },
   { key: 'charging', to: '/dashboard/charging', exact: false, label: 'Charging', icon: ICON.charging, bolt: true, color: SECTION.charging },
   { key: 'insights', to: '/dashboard/insights', exact: false, label: 'Insights', icon: ICON.insights, bolt: false, color: SECTION.insights },
+  { key: 'analytics', to: '/dashboard/analytics', exact: false, label: 'Analytics', icon: ICON.battery, bolt: false, color: SECTION.analytics },
   { key: 'settings', to: '/dashboard/settings', exact: false, label: 'Settings', icon: ICON.settings, bolt: false, color: SECTION.settings },
 ] as const
 

@@ -24,8 +24,15 @@ export type ChargingState =
 export type ShiftState = 'P' | 'R' | 'N' | 'D' | null
 
 export type ChargeSource = 'supercharger' | 'home' | 'other'
-export type CostSource = 'tesla_billed' | 'computed'
+export type CostSource =
+  | 'computed'
+  | 'tesla_billed'
+  | 'tesla_billed_free'
+  | 'imported_teslamate'
+  | 'geofence'
 export type ChargeLocationType = 'home' | 'away' | 'supercharger' | 'unknown'
+export type BillingType = 'per_kwh' | 'per_minute' | 'per_session'
+export type VehicleStateKind = 'online' | 'asleep' | 'offline' | 'driving' | 'charging'
 
 export type AnomalyType = 'slow_charge' | 'efficiency_drop'
 export type AnomalySeverity = 'info' | 'warning'
@@ -48,6 +55,17 @@ export interface Vehicle {
   display_name: string | null
   car_type: string | null
   last_state: string | null
+  model: string | null
+  trim_badging: string | null
+  marketing_name: string | null
+  exterior_color: string | null
+  wheel_type: string | null
+  spoiler_type: string | null
+  pack_kwh: number | null
+  efficiency_wh_per_mi: number | null
+  is_lfp: boolean
+  free_supercharging: boolean
+  display_priority: number
   created_at: string
   updated_at: string
 }
@@ -75,8 +93,17 @@ export interface VehicleSnapshot {
   latitude: number | null
   longitude: number | null
   speed: number | null
+  charger_voltage: number | null
+  charger_actual_current: number | null
+  charger_phases: number | null
+  power_kw: number | null
+  elevation_m: number | null
   gps_as_of: string | null
   raw_json: Json | null
+  source_drive_id: number | null
+  source_charge_id: number | null
+  import_source: string
+  source_pk: number | null
   created_at: string
 }
 
@@ -91,14 +118,25 @@ export interface ChargeSession {
   lat: number | null
   lng: number | null
   energy_added_kwh: number | null
+  energy_used_kwh: number | null
   miles_added_rated: number | null
+  start_range_mi: number | null
+  end_range_mi: number | null
+  start_battery_level: number | null
+  end_battery_level: number | null
+  outside_temp_avg: number | null
+  fast_charger_type: string | null
   charge_location_type: ChargeLocationType
+  geofence_id: number | null
+  address_id: number | null
   cost_amount: number | null
   cost_currency: string | null
   cost_source: CostSource
   rate_applied: number | null
   tesla_charge_session_id: string | null
   invoices: Json | null
+  import_source: string
+  source_pk: number | null
   created_at: string
   updated_at: string
 }
@@ -119,8 +157,25 @@ export interface DriveSession {
   end_lng: number | null
   start_battery_level: number | null
   end_battery_level: number | null
+  start_range_mi: number | null
+  end_range_mi: number | null
   energy_used_kwh: number | null
   wh_per_mi: number | null
+  outside_temp_avg: number | null
+  inside_temp_avg: number | null
+  speed_max_mph: number | null
+  power_max_kw: number | null
+  power_min_kw: number | null
+  ascent: number | null
+  descent: number | null
+  start_snapshot_id: number | null
+  end_snapshot_id: number | null
+  start_address_id: number | null
+  end_address_id: number | null
+  start_geofence_id: number | null
+  end_geofence_id: number | null
+  import_source: string
+  source_pk: number | null
   created_at: string
 }
 
@@ -153,4 +208,83 @@ export interface AnomalyFlag {
   detail: Json | null
   created_at: string
   dismissed_at: string | null
+}
+
+export interface Geofence {
+  id: number
+  user_id: string
+  name: string
+  lat: number | null
+  lng: number | null
+  radius_m: number
+  billing_type: BillingType
+  cost_per_unit: number | null
+  session_fee: number | null
+  currency: string | null
+  is_home: boolean
+  source_pk: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Address {
+  id: number
+  user_id: string
+  osm_id: number | null
+  osm_type: string | null
+  display_name: string | null
+  name: string | null
+  house_number: string | null
+  road: string | null
+  neighbourhood: string | null
+  city: string | null
+  county: string | null
+  postcode: string | null
+  state: string | null
+  state_district: string | null
+  country: string | null
+  lat: number | null
+  lng: number | null
+  raw_json: Json | null
+  geofence_id: number | null
+  source_pk: number | null
+  created_at: string
+}
+
+export interface VehicleState {
+  id: number
+  vin: string
+  user_id: string
+  state: VehicleStateKind | (string & {})
+  started_at: string
+  ended_at: string | null
+  import_source: string
+  source_pk: number | null
+}
+
+export interface SoftwareUpdate {
+  id: number
+  vin: string
+  user_id: string
+  version: string | null
+  started_at: string
+  ended_at: string | null
+  import_source: string
+  source_pk: number | null
+  created_at: string
+}
+
+export interface ImportBatch {
+  id: number
+  user_id: string
+  source: string
+  status: string
+  preferred_range: string | null
+  cutover_at: string | null
+  file_checksums: Json | null
+  cursors: Json | null
+  row_counts: Json | null
+  error: string | null
+  created_at: string
+  finished_at: string | null
 }

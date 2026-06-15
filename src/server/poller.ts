@@ -16,9 +16,12 @@ import {
   chargeSession,
   driveSession,
   electricityRate,
+  geofence,
+  softwareUpdate,
   teslaAccount,
   vehicle,
   vehicleSnapshot,
+  vehicleState,
 } from './schema'
 import {
   ASLEEP,
@@ -26,11 +29,13 @@ import {
   getVehicleData,
   listVehicles,
 } from './tesla/client.server'
-import type { TeslaVehicleData } from './tesla/types'
+import type { TeslaDriveState, TeslaVehicleData } from './tesla/types'
 import type { AnomalyCandidate } from './anomaly'
 import { detectEfficiencyDrop, detectSlowCharge } from './anomaly'
-import { classifyChargeLocation } from './geo'
-import type { ElectricityRate, Json } from '../types/db'
+import { classifyChargeLocation, findGeofence } from './geo'
+import { computeChargeCost } from './cost'
+import { recalculateEfficiency } from './efficiency'
+import type { ElectricityRate, Geofence, Json } from '../types/db'
 
 /**
  * Approximate usable pack energy (kWh); used for drive energy estimates.
@@ -91,6 +96,10 @@ async function pollUser(db: Db, userId: string, summary: PollSummary): Promise<v
       summary.errors.push(`vehicle ${v.vin}: ${(e as Error).message}`)
     }
 
+    // State-interval history (online/asleep/offline) — runs for every vehicle,
+    // even sleeping ones (that's the point: a sleep timeline + drain attribution).
+    await recordStateTransition(db, userId, v.vin, v.state, summary)
+
     if (v.state !== 'online') {
       summary.asleep++
       continue // back off — do NOT wake the car
@@ -101,6 +110,9 @@ async function pollUser(db: Db, userId: string, summary: PollSummary): Promise<v
       summary.asleep++
       continue
     }
+
+    // Firmware version history (best-effort; never abort the cycle).
+    await recordSoftwareUpdate(db, userId, v.vin, data.vehicle_state?.car_version ?? null, summary)
 
     const recordedAt = new Date().toISOString()
     const snapErr = await insertSnapshot(db, userId, v.vin, recordedAt, data)
@@ -115,6 +127,28 @@ async function pollUser(db: Db, userId: string, summary: PollSummary): Promise<v
     await updateChargeSession(db, userId, v.vin, recordedAt, data, summary)
     await updateDriveSession(db, userId, v.vin, recordedAt, data, summary)
   }
+}
+
+// Plausible range for a real reading time (2015-01-01 .. 2100-01-01), in ms.
+const MIN_TS_MS = Date.UTC(2015, 0, 1)
+const MAX_TS_MS = Date.UTC(2100, 0, 1)
+
+/**
+ * Resolve the location "as of" time. Tesla's `drive_state.gps_as_of` is nominally
+ * Unix *seconds*, but a parked/asleep car often returns a garbage value (e.g. a
+ * large negative number, which `* 1000` turns into a 1943 date). Use it only when
+ * it lands in a sane range; otherwise fall back to the drive_state `timestamp`
+ * (Unix ms), then null (callers fall back to the snapshot's recorded_at).
+ */
+function locationAsOf(ds: TeslaDriveState): string | null {
+  if (typeof ds.gps_as_of === 'number') {
+    const ms = ds.gps_as_of * 1000
+    if (ms >= MIN_TS_MS && ms <= MAX_TS_MS) return new Date(ms).toISOString()
+  }
+  if (typeof ds.timestamp === 'number' && ds.timestamp >= MIN_TS_MS && ds.timestamp <= MAX_TS_MS) {
+    return new Date(ds.timestamp).toISOString()
+  }
+  return null
 }
 
 async function insertSnapshot(
@@ -151,7 +185,9 @@ async function insertSnapshot(
       latitude: ds.latitude ?? null,
       longitude: ds.longitude ?? null,
       speed: ds.speed ?? null,
-      gps_as_of: ds.gps_as_of ? new Date(ds.gps_as_of * 1000).toISOString() : null,
+      charger_voltage: cs.charger_voltage ?? null,
+      power_kw: ds.power ?? null,
+      gps_as_of: locationAsOf(ds),
       raw_json: data as unknown as Json,
     })
     return null
@@ -272,25 +308,60 @@ async function closeChargeSession(
         ? 'supercharger'
         : 'home'
 
-  // Geofence verdict (home | away | supercharger | unknown) from the start coords.
+  // Geofence + cost. Match the start coords against the user's named zones
+  // (nearest-wins); fall back to the legacy home geofence on electricity_rate.
   const rate = await getRate(db, userId)
-  const chargeLocationType = classifyChargeLocation(source, open.lat, open.lng, rate)
+  const geofences = (await db
+    .select()
+    .from(geofence)
+    .where(eq(geofence.user_id, userId))) as Geofence[]
+  const gf = findGeofence(open.lat, open.lng, geofences)
   const homeConfigured = rate?.home_lat != null && rate?.home_lng != null
 
-  // Apply the home rate to non-Supercharger charges. Once a home geofence IS
-  // configured, only charges inside it get the home rate (away AC charges no
-  // longer silently get it); before configuration we keep the prior behavior so
-  // existing home cost doesn't vanish.
-  const applyHomeCost =
-    source !== 'supercharger' && (!homeConfigured || chargeLocationType === 'home')
-  let cost: number | null = null
-  let costCurrency: string | null = null
-  let rateApplied: number | null = null
-  if (applyHomeCost && rate?.flat_rate != null && energyKwh) {
-    rateApplied = Number(rate.flat_rate)
-    costCurrency = rate.currency
-    cost = energyKwh * rateApplied * Number(rate.loss_factor ?? 1.1)
-  }
+  const chargeLocationType =
+    source === 'supercharger'
+      ? 'supercharger'
+      : gf
+        ? gf.is_home
+          ? 'home'
+          : 'away'
+        : classifyChargeLocation(source, open.lat, open.lng, rate)
+
+  // Legacy fallback: before any home/zone is configured, keep costing home AC
+  // charges so existing behaviour doesn't silently vanish.
+  const treatAsHome =
+    chargeLocationType === 'home' ||
+    (!homeConfigured && geofences.length === 0 && source !== 'supercharger')
+
+  const durationS = Math.max(
+    0,
+    Math.round((new Date(endedAt).getTime() - new Date(open.started_at).getTime()) / 1000),
+  )
+  const [veh] = await db
+    .select({ free_supercharging: vehicle.free_supercharging })
+    .from(vehicle)
+    .where(and(eq(vehicle.vin, vin), eq(vehicle.user_id, userId)))
+    .limit(1)
+
+  const costR = computeChargeCost({
+    source,
+    freeSupercharging: veh?.free_supercharging ?? false,
+    energyAddedKwh: energyKwh,
+    durationS,
+    geofence: gf
+      ? {
+          billing_type: gf.billing_type,
+          cost_per_unit: gf.cost_per_unit,
+          session_fee: gf.session_fee,
+          currency: gf.currency,
+          is_home: gf.is_home,
+        }
+      : null,
+    homeRate: rate
+      ? { flat_rate: rate.flat_rate, loss_factor: rate.loss_factor, currency: rate.currency }
+      : null,
+    isHome: treatAsHome,
+  })
 
   try {
     await db
@@ -299,12 +370,19 @@ async function closeChargeSession(
         ended_at: endedAt,
         source,
         charge_location_type: chargeLocationType,
+        geofence_id: gf?.id ?? null,
         energy_added_kwh: energyKwh,
         miles_added_rated: milesAdded,
-        cost_amount: cost,
-        cost_currency: costCurrency,
-        cost_source: 'computed', // supercharger cost is filled by reconciliation
-        rate_applied: rateApplied,
+        start_range_mi: agg.startRange,
+        end_range_mi: agg.endRange,
+        start_battery_level: agg.startBatteryLevel,
+        end_battery_level: agg.endBatteryLevel,
+        outside_temp_avg: agg.avgOutsideTemp,
+        cost_amount: costR.cost_amount,
+        cost_currency: costR.cost_currency,
+        // supercharger paid → 'computed' here, reconciliation fills tesla_billed.
+        cost_source: costR.cost_source,
+        rate_applied: costR.rate_applied,
         updated_at: endedAt,
       })
       .where(eq(chargeSession.id, open.id))
@@ -330,6 +408,13 @@ async function closeChargeSession(
     if (candidate) await insertAnomaly(db, userId, vin, candidate, { chargeId: open.id })
   } catch (e) {
     summary.errors.push(`slow-charge detect ${vin}: ${(e as Error).message}`)
+  }
+
+  // Refresh the per-vehicle efficiency factor from the now-larger charge history.
+  try {
+    await recalculateEfficiency(db, userId, vin)
+  } catch (e) {
+    summary.errors.push(`efficiency recalc ${vin}: ${(e as Error).message}`)
   }
 }
 
@@ -384,13 +469,28 @@ async function closeDriveSession(
   const endOdo = last?.odometer ?? null
   const distance =
     endOdo != null && open.start_odometer != null ? endOdo - open.start_odometer : null
+  const agg = await aggregateSnapshots(db, vin, userId, open.started_at, endedAt)
+  const [veh] = await db
+    .select({ pack_kwh: vehicle.pack_kwh, eff: vehicle.efficiency_wh_per_mi })
+    .from(vehicle)
+    .where(and(eq(vehicle.vin, vin), eq(vehicle.user_id, userId)))
+    .limit(1)
   const startBL = open.start_battery_level
   const endBL = last?.battery_level ?? null
-  // battery_level is integer %, and the car can net-charge (regen / N while plugged)
-  // during a window — clamp negatives to null rather than poison the stats.
-  const rawEnergy =
-    startBL != null && endBL != null ? ((startBL - endBL) / 100) * PACK_KWH : null
-  const energyUsed = rawEnergy != null && rawEnergy >= 0 ? rawEnergy : null
+  const rangeDeltaMi =
+    agg.startRange != null && agg.endRange != null ? agg.startRange - agg.endRange : null
+
+  // Prefer rated-range-drop × per-vehicle efficiency (TeslaMate's method); fall
+  // back to SOC-delta × pack size. battery_level is integer %, and the car can
+  // net-charge (regen / N while plugged) — clamp negatives to null.
+  const packKwh = veh?.pack_kwh ?? PACK_KWH
+  let energyUsed: number | null = null
+  if (rangeDeltaMi != null && rangeDeltaMi > 0 && veh?.eff) {
+    energyUsed = (rangeDeltaMi * veh.eff) / 1000
+  } else if (startBL != null && endBL != null) {
+    const raw = ((startBL - endBL) / 100) * packKwh
+    energyUsed = raw >= 0 ? raw : null
+  }
   const whPerMi =
     energyUsed != null && distance != null && distance >= MIN_WHPM_DISTANCE_MI
       ? (energyUsed * 1000) / distance
@@ -411,8 +511,13 @@ async function closeDriveSession(
         end_lat: last?.latitude ?? null,
         end_lng: last?.longitude ?? null,
         end_battery_level: endBL,
+        start_range_mi: agg.startRange,
+        end_range_mi: agg.endRange,
         energy_used_kwh: energyUsed,
         wh_per_mi: whPerMi,
+        outside_temp_avg: agg.avgOutsideTemp,
+        inside_temp_avg: agg.avgInsideTemp,
+        speed_max_mph: agg.maxSpeed != null ? Math.round(agg.maxSpeed) : null,
       })
       .where(eq(driveSession.id, open.id))
   } catch (e) {
@@ -491,6 +596,9 @@ async function aggregateSnapshots(
       battery_level: vehicleSnapshot.battery_level,
       charge_energy_added: vehicleSnapshot.charge_energy_added,
       charger_power: vehicleSnapshot.charger_power,
+      outside_temp: vehicleSnapshot.outside_temp,
+      inside_temp: vehicleSnapshot.inside_temp,
+      speed: vehicleSnapshot.speed,
       recorded_at: vehicleSnapshot.recorded_at,
     })
     .from(vehicleSnapshot)
@@ -507,6 +615,10 @@ async function aggregateSnapshots(
   const energies = rows.map((r) => r.charge_energy_added).filter((n): n is number => n != null)
   const levels = rows.map((r) => r.battery_level).filter((n): n is number => n != null)
   const powers = rows.map((r) => r.charger_power).filter((n): n is number => n != null && n > 0)
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
+  const outsideTemps = rows.map((r) => r.outside_temp).filter((n): n is number => n != null)
+  const insideTemps = rows.map((r) => r.inside_temp).filter((n): n is number => n != null)
+  const speeds = rows.map((r) => r.speed).filter((n): n is number => n != null)
   const superSnapshotCount = rows.filter(
     (r) => (r.charger_power ?? 0) >= SUPERCHARGER_KW_THRESHOLD,
   ).length
@@ -537,10 +649,14 @@ async function aggregateSnapshots(
   return {
     startRange: ranges.at(0) ?? null,
     endRange: ranges.at(-1) ?? null,
+    startBatteryLevel: levels.at(0) ?? null,
     endBatteryLevel: levels.at(-1) ?? null,
     avgChargerPower,
     energyAdded,
     superSnapshotCount,
+    avgOutsideTemp: avg(outsideTemps),
+    avgInsideTemp: avg(insideTemps),
+    maxSpeed: speeds.length ? Math.max(...speeds) : null,
   }
 }
 
@@ -583,6 +699,68 @@ async function lastSnapshotRow(
     .orderBy(desc(vehicleSnapshot.recorded_at))
     .limit(1)
   return rows[0] ?? null
+}
+
+// ── state-interval + firmware tracking ───────────────────────────────────────
+/** Close the open state interval and open a new one when the state changes. */
+async function recordStateTransition(
+  db: Db,
+  userId: string,
+  vin: string,
+  state: string,
+  summary: PollSummary,
+): Promise<void> {
+  try {
+    const [open] = await db
+      .select({ id: vehicleState.id, state: vehicleState.state })
+      .from(vehicleState)
+      .where(and(eq(vehicleState.vin, vin), eq(vehicleState.user_id, userId), isNull(vehicleState.ended_at)))
+      .orderBy(desc(vehicleState.started_at))
+      .limit(1)
+    if (open && open.state === state) return // unchanged — nothing to do
+    const now = new Date().toISOString()
+    if (open) {
+      await db.update(vehicleState).set({ ended_at: now }).where(eq(vehicleState.id, open.id))
+    }
+    try {
+      await db.insert(vehicleState).values({ vin, user_id: userId, state, started_at: now })
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e // a concurrent cycle opened it — fine
+    }
+  } catch (e) {
+    summary.errors.push(`state track ${vin}: ${(e as Error).message}`)
+  }
+}
+
+/** Record a firmware version change as a software_update interval. */
+async function recordSoftwareUpdate(
+  db: Db,
+  userId: string,
+  vin: string,
+  version: string | null,
+  summary: PollSummary,
+): Promise<void> {
+  if (!version) return
+  try {
+    const [open] = await db
+      .select({ id: softwareUpdate.id, version: softwareUpdate.version })
+      .from(softwareUpdate)
+      .where(and(eq(softwareUpdate.vin, vin), eq(softwareUpdate.user_id, userId), isNull(softwareUpdate.ended_at)))
+      .orderBy(desc(softwareUpdate.started_at))
+      .limit(1)
+    if (open && open.version === version) return
+    const now = new Date().toISOString()
+    if (open) {
+      await db.update(softwareUpdate).set({ ended_at: now }).where(eq(softwareUpdate.id, open.id))
+    }
+    try {
+      await db.insert(softwareUpdate).values({ vin, user_id: userId, version, started_at: now })
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e
+    }
+  } catch (e) {
+    summary.errors.push(`update track ${vin}: ${(e as Error).message}`)
+  }
 }
 
 async function getRate(db: Db, userId: string): Promise<ElectricityRate | null> {

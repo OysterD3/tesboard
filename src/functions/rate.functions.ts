@@ -10,9 +10,10 @@ import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
 import { vinFilter } from './vin'
-import { classifyChargeLocation } from '../server/geo'
-import { chargeSession, electricityRate, vehicleSnapshot } from '../server/schema'
-import type { ChargeSession, ElectricityRate } from '../types/db'
+import { classifyChargeLocation, findGeofence } from '../server/geo'
+import { computeChargeCost } from '../server/cost'
+import { chargeSession, electricityRate, geofence, vehicle, vehicleSnapshot } from '../server/schema'
+import type { ChargeSession, ElectricityRate, Geofence } from '../types/db'
 
 export const getRate = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
@@ -128,19 +129,43 @@ export const reclassifyCharges = createServerFn({ method: 'POST' })
       .where(eq(electricityRate.user_id, userId))
       .limit(1)
     const rate = rateRows[0] as ElectricityRate | undefined
-    if (!rate || rate.home_lat == null || rate.home_lng == null) {
+    const geofences = (await db
+      .select()
+      .from(geofence)
+      .where(eq(geofence.user_id, userId))) as Geofence[]
+    const homeConfigured = rate?.home_lat != null && rate?.home_lng != null
+    if (!homeConfigured && geofences.length === 0) {
       return { reclassified: 0, recosted: 0 }
     }
+    const freeVins = new Set(
+      (
+        await db
+          .select({ vin: vehicle.vin })
+          .from(vehicle)
+          .where(and(eq(vehicle.user_id, userId), eq(vehicle.free_supercharging, true)))
+      ).map((v) => v.vin),
+    )
 
     const sessions = (await db
       .select()
       .from(chargeSession)
       .where(and(eq(chargeSession.user_id, userId), isNotNull(chargeSession.ended_at)))) as ChargeSession[]
 
+    // Authoritative / imported costs are never rewritten.
+    const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate'])
+
     let reclassified = 0
     let recosted = 0
     for (const s of sessions) {
-      const type = classifyChargeLocation(s.source, s.lat, s.lng, rate)
+      const gf = findGeofence(s.lat, s.lng, geofences)
+      const type =
+        s.source === 'supercharger'
+          ? 'supercharger'
+          : gf
+            ? gf.is_home
+              ? 'home'
+              : 'away'
+            : classifyChargeLocation(s.source, s.lat, s.lng, rate ?? null)
       const set: Record<string, unknown> = {}
       let typeChanged = false
       let costChanged = false
@@ -149,29 +174,48 @@ export const reclassifyCharges = createServerFn({ method: 'POST' })
         set.charge_location_type = type
         typeChanged = true
       }
+      const newGid = gf?.id ?? null
+      if (newGid !== s.geofence_id) set.geofence_id = newGid
 
-      // Only rewrite computed costs — billed rows are authoritative.
-      if (s.cost_source !== 'tesla_billed') {
-        const applyHome = s.source !== 'supercharger' && type === 'home'
-        if (applyHome && rate.flat_rate != null && s.energy_added_kwh) {
-          const ra = Number(rate.flat_rate)
-          const cost = s.energy_added_kwh * ra * Number(rate.loss_factor ?? 1.1)
-          if (s.cost_amount !== cost || s.rate_applied !== ra || s.cost_currency !== rate.currency) {
-            set.cost_amount = cost
-            set.cost_currency = rate.currency
-            set.rate_applied = ra
-            costChanged = true
-          }
-        } else if (s.cost_amount != null || s.rate_applied != null) {
-          // away / unknown / SC computed → drop the previously-applied home cost
-          set.cost_amount = null
-          set.cost_currency = null
-          set.rate_applied = null
+      if (!FROZEN.has(s.cost_source)) {
+        const durationS =
+          s.ended_at != null
+            ? Math.max(0, Math.round((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000))
+            : null
+        const costR = computeChargeCost({
+          source: s.source,
+          freeSupercharging: freeVins.has(s.vin),
+          energyAddedKwh: s.energy_added_kwh,
+          energyUsedKwh: s.energy_used_kwh,
+          durationS,
+          geofence: gf
+            ? {
+                billing_type: gf.billing_type,
+                cost_per_unit: gf.cost_per_unit,
+                session_fee: gf.session_fee,
+                currency: gf.currency,
+                is_home: gf.is_home,
+              }
+            : null,
+          homeRate: rate
+            ? { flat_rate: rate.flat_rate, loss_factor: rate.loss_factor, currency: rate.currency }
+            : null,
+          isHome: type === 'home',
+        })
+        if (
+          s.cost_amount !== costR.cost_amount ||
+          s.rate_applied !== costR.rate_applied ||
+          s.cost_currency !== costR.cost_currency
+        ) {
+          set.cost_amount = costR.cost_amount
+          set.cost_currency = costR.cost_currency
+          set.rate_applied = costR.rate_applied
+          if (costR.cost_source === 'geofence') set.cost_source = 'geofence'
           costChanged = true
         }
       }
 
-      if (typeChanged || costChanged) {
+      if (Object.keys(set).length > 0) {
         set.updated_at = new Date().toISOString()
         await db
           .update(chargeSession)

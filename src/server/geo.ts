@@ -24,6 +24,63 @@ export function haversineMeters(
 
 const DEFAULT_HOME_RADIUS_M = 150
 
+/** Fields from a reverse-geocoded address row used to build a short label. */
+export interface AddressLabelParts {
+  name: string | null
+  road: string | null
+  neighbourhood: string | null
+  city: string | null
+  display_name: string | null
+}
+
+/**
+ * Shortest meaningful place label from an address row: a POI name if present,
+ * else the road, neighbourhood, city, or the first segment of the full address.
+ * Pure; shared by the drives and charging location resolvers.
+ */
+export function addressLabel(a: AddressLabelParts): string | null {
+  const seg =
+    a.name?.trim() ||
+    a.road?.trim() ||
+    a.neighbourhood?.trim() ||
+    a.city?.trim() ||
+    a.display_name?.split(',')[0]?.trim() ||
+    null
+  return seg || null
+}
+
+export interface GeofenceLike {
+  id: number
+  lat: number | null
+  lng: number | null
+  radius_m: number | null
+}
+
+/**
+ * Find the geofence containing a point — nearest-wins when zones overlap. Returns
+ * the matched zone + its centre distance, or null. Pure (callers pass the user's
+ * geofence list, already user_id-scoped).
+ */
+export function findGeofence<T extends GeofenceLike>(
+  lat: number | null | undefined,
+  lng: number | null | undefined,
+  geofences: T[],
+): T | null {
+  if (lat == null || lng == null) return null
+  let best: T | null = null
+  let bestDist = Infinity
+  for (const g of geofences) {
+    if (g.lat == null || g.lng == null) continue
+    const radius = g.radius_m ?? DEFAULT_HOME_RADIUS_M
+    const d = haversineMeters(lat, lng, g.lat, g.lng)
+    if (d <= radius && d < bestDist) {
+      best = g
+      bestDist = d
+    }
+  }
+  return best
+}
+
 /**
  * Classify a charge session's physical location into the geofence verdict.
  *  - 'supercharger' wins outright (power-based classification owns SC).

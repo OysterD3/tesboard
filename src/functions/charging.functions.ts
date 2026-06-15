@@ -3,13 +3,17 @@
  * RLS via the user-scoped client confines rows to the signed-in user.
  */
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { getDb } from '../server/db'
 import { vinFilter } from './vin'
-import { chargeSession, vehicleSnapshot } from '../server/schema'
+import { address, chargeSession, geofence, vehicleSnapshot } from '../server/schema'
+import { addressLabel } from '../server/geo'
 import type { ChargeSession } from '../types/db'
+
+/** A charge row augmented with a resolved place name (geofence > address > stored name). */
+export type ChargeWithLocation = ChargeSession & { locationName: string | null }
 
 export interface ChargingStats {
   sessionCount: number
@@ -24,7 +28,7 @@ export interface ChargingStats {
 }
 
 export interface ChargingPayload {
-  sessions: ChargeSession[]
+  sessions: ChargeWithLocation[]
   stats: ChargingStats
 }
 
@@ -46,7 +50,45 @@ export const getCharging = createServerFn({ method: 'GET' })
       .orderBy(desc(chargeSession.started_at))
       .limit(500)
 
-    const sessions = rows as ChargeSession[]
+    const baseSessions = rows as ChargeSession[]
+
+    // Resolve a place name per session: a named geofence (Home, Work) wins, then the
+    // reverse-geocoded address, then any stored location_name. Batched + user-scoped.
+    const addrIds = [...new Set(baseSessions.map((s) => s.address_id).filter((x): x is number => x != null))]
+    const geoIds = [...new Set(baseSessions.map((s) => s.geofence_id).filter((x): x is number => x != null))]
+
+    const addrRows = addrIds.length
+      ? await db
+          .select({
+            id: address.id,
+            name: address.name,
+            road: address.road,
+            neighbourhood: address.neighbourhood,
+            city: address.city,
+            display_name: address.display_name,
+          })
+          .from(address)
+          .where(and(eq(address.user_id, context.userId), inArray(address.id, addrIds)))
+      : []
+    const geoRows = geoIds.length
+      ? await db
+          .select({ id: geofence.id, name: geofence.name })
+          .from(geofence)
+          .where(and(eq(geofence.user_id, context.userId), inArray(geofence.id, geoIds)))
+      : []
+
+    const addrMap = new Map(addrRows.map((a) => [a.id, a]))
+    const geoMap = new Map(geoRows.map((g) => [g.id, g.name]))
+
+    const sessions: ChargeWithLocation[] = baseSessions.map((s) => {
+      const geoName = s.geofence_id != null ? geoMap.get(s.geofence_id) : undefined
+      const addr = s.address_id != null ? addrMap.get(s.address_id) : undefined
+      return {
+        ...s,
+        locationName: geoName ?? (addr ? addressLabel(addr) : null) ?? s.location_name ?? null,
+      }
+    })
+
     const stats = summarize(sessions)
     return { sessions, stats }
   })
@@ -90,8 +132,14 @@ function round(n: number, dp = 2): number {
 export interface ChargeDetail {
   /** Whether any per-snapshot power/SOC was captured during the session. */
   hasData: boolean
-  /** Real kW readings over the session window (charger_power per snapshot). */
+  /** Smoothed kW readings over the session window (charger_power per snapshot, median-filtered). */
   curve: number[]
+  /**
+   * Fractional position (0–1) of the taper onset along the curve, or null when
+   * there is no genuine sustained drop from peak (e.g. flat AC charging). The UI
+   * only draws the taper marker when this is non-null.
+   */
+  taperFrac: number | null
   peakKw: number | null
   soc0: number | null
   soc1: number | null
@@ -114,7 +162,7 @@ export const getChargeDetail = createServerFn({ method: 'GET' })
   .handler(async ({ data, context }): Promise<ChargeDetail> => {
     const db = getDb()
     const userId = context.userId
-    const empty: ChargeDetail = { hasData: false, curve: [], peakKw: null, soc0: null, soc1: null, hit80: null, hit100: null, minAbove80: 0 }
+    const empty: ChargeDetail = { hasData: false, curve: [], taperFrac: null, peakKw: null, soc0: null, soc1: null, hit80: null, hit100: null, minAbove80: 0 }
 
     const rows = await db
       .select()
@@ -163,9 +211,15 @@ export const getChargeDetail = createServerFn({ method: 'GET' })
     }
     const minAbove80 = firstAbove80At != null ? Math.max(0, lastAt - firstAbove80At) : 0
 
+    // `charger_power` is a rounded integer that twitches sample-to-sample (e.g. an AC
+    // charge sitting at 11 kW logs occasional 1/5/8 kW dips). A median filter removes
+    // those single-sample impulses while preserving real edges (peaks + genuine tapers).
+    const curve = downsample(medianSmooth(powers, 5), 80)
+
     return {
       hasData: powers.length > 0 || socs.length > 0,
-      curve: downsample(powers, 80),
+      curve,
+      taperFrac: detectTaper(curve),
       peakKw: powers.length ? round(Math.max(...powers), 1) : null,
       soc0: socs.length ? socs[0] : null,
       soc1: socs.length ? socs[socs.length - 1] : null,
@@ -182,4 +236,42 @@ function downsample(arr: number[], max: number): number[] {
   const out: number[] = []
   for (let i = 0; i < max; i++) out.push(arr[Math.floor(i * step)])
   return out
+}
+
+/** Windowed median — kills isolated sample spikes while keeping real edges. */
+function medianSmooth(arr: number[], win: number): number[] {
+  if (arr.length < win || win < 2) return arr
+  const half = Math.floor(win / 2)
+  const out: number[] = []
+  for (let i = 0; i < arr.length; i++) {
+    const w = arr.slice(Math.max(0, i - half), Math.min(arr.length, i + half + 1)).sort((a, b) => a - b)
+    out.push(w[Math.floor(w.length / 2)])
+  }
+  return out
+}
+
+/**
+ * Locate the taper onset on a (smoothed) power curve, or null when there isn't one.
+ * A genuine taper (DC fast-charge) plateaus near peak then drops and stays low; flat
+ * AC charging holds near peak to the end, so we return null and the UI hides the marker.
+ * Returns the fractional position (0–1) where power last falls below 85% of peak and
+ * never recovers — only when the tail ends meaningfully below peak and isn't the whole curve.
+ */
+function detectTaper(curve: number[]): number | null {
+  const n = curve.length
+  if (n < 8) return null
+  const peak = Math.max(...curve)
+  if (peak <= 0) return null
+  // Still near peak at the end ⇒ no taper (flat AC).
+  if (curve[n - 1] > peak * 0.8) return null
+  const thresh = peak * 0.85
+  // Walk back over the contiguous below-threshold tail to find its onset.
+  let onset = n - 1
+  for (let i = n - 1; i >= 0; i--) {
+    if (curve[i] <= thresh) onset = i
+    else break
+  }
+  // Require a real plateau before the taper (not a curve that only ever declines).
+  if (onset <= n * 0.15) return null
+  return onset / (n - 1)
 }
