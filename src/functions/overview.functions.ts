@@ -5,8 +5,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { and, count, desc, eq, isNull, type SQL } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
-import { vinFilter } from './vin'
+import { withDb, type Db } from '../server/db'
+import { vinFilter, type VinFilter } from './vin'
 import {
   anomalyFlag,
   chargeSession,
@@ -33,9 +33,15 @@ export interface OverviewPayload {
 export const getOverview = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(vinFilter)
-  .handler(async ({ data, context }): Promise<OverviewPayload> => {
-    const db = getDb()
-    const userId = context.userId
+  .handler(async ({ data, context }): Promise<OverviewPayload> =>
+    withDb((db) => getOverviewCore(db, context.userId, data)),
+  )
+
+export async function getOverviewCore(
+  db: Db,
+  userId: string,
+  data: VinFilter,
+): Promise<OverviewPayload> {
     const vin = data?.vin
 
     const [accountRows, vehicles] = await Promise.all([
@@ -86,10 +92,10 @@ export const getOverview = createServerFn({ method: 'GET' })
       counts: { snapshots: snapCount, drives: driveCount, charges: chargeCount },
       openAnomalyCount: anomalyRows[0]?.value ?? 0,
     }
-  })
+}
 
 async function countRows(
-  db: ReturnType<typeof getDb>,
+  db: Db,
   table: typeof vehicleSnapshot | typeof driveSession | typeof chargeSession,
   userId: string,
   vin: string | undefined,

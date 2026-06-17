@@ -7,8 +7,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { and, desc, eq } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
-import { vinFilter } from './vin'
+import { withDb, type Db } from '../server/db'
+import { vinFilter, type VinFilter } from './vin'
 import { electricityRate, vehicle, vehicleSnapshot } from '../server/schema'
 import type { ChargingState, Vehicle, VehicleSnapshot } from '../types/db'
 
@@ -49,9 +49,15 @@ function staleness(ageSeconds: number | null): Staleness {
 export const getDepartureReadiness = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(vinFilter)
-  .handler(async ({ data, context }): Promise<DepartureReadinessPayload> => {
-    const db = getDb()
-    const userId = context.userId
+  .handler(async ({ data, context }): Promise<DepartureReadinessPayload> =>
+    withDb((db) => getDepartureReadinessCore(db, context.userId, data)),
+  )
+
+export async function getDepartureReadinessCore(
+  db: Db,
+  userId: string,
+  data: VinFilter,
+): Promise<DepartureReadinessPayload> {
     const vin = data?.vin
 
     const [rateRows, vehicles] = await Promise.all([
@@ -107,4 +113,4 @@ export const getDepartureReadiness = createServerFn({ method: 'GET' })
     }
 
     return { vehicles: out }
-  })
+}

@@ -6,7 +6,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq, isNotNull } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb, type Db } from '../server/db'
 import { chargeSession, vehicle } from '../server/schema'
 import {
   buildBatteryHealth,
@@ -14,7 +14,7 @@ import {
   projectedRangeMi,
   type CapacityPoint,
 } from '../lib/analytics-vm'
-import { vinFilter } from './vin'
+import { vinFilter, type VinFilter } from './vin'
 
 export interface BatteryHealthResult {
   efficiencyWhPerMi: number | null
@@ -28,13 +28,20 @@ export interface BatteryHealthResult {
 export const getBatteryHealth = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(vinFilter)
-  .handler(async ({ data, context }): Promise<BatteryHealthResult> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<BatteryHealthResult> =>
+    withDb((db) => getBatteryHealthCore(db, context.userId, data)),
+  )
+
+export async function getBatteryHealthCore(
+  db: Db,
+  userId: string,
+  data: VinFilter,
+): Promise<BatteryHealthResult> {
     const vin = data?.vin
     const [veh] = await db
       .select({ eff: vehicle.efficiency_wh_per_mi })
       .from(vehicle)
-      .where(and(eq(vehicle.user_id, context.userId), vin ? eq(vehicle.vin, vin) : undefined))
+      .where(and(eq(vehicle.user_id, userId), vin ? eq(vehicle.vin, vin) : undefined))
       .limit(1)
     const eff = veh?.eff ?? null
 
@@ -47,7 +54,7 @@ export const getBatteryHealth = createServerFn({ method: 'GET' })
       .from(chargeSession)
       .where(
         and(
-          eq(chargeSession.user_id, context.userId),
+          eq(chargeSession.user_id, userId),
           vin ? eq(chargeSession.vin, vin) : undefined,
           isNotNull(chargeSession.ended_at),
           isNotNull(chargeSession.end_range_mi),
@@ -70,4 +77,4 @@ export const getBatteryHealth = createServerFn({ method: 'GET' })
       projectedRangeMi: projectedRangeMi(health.currentKwh, eff),
       series: health.series,
     }
-  })
+}

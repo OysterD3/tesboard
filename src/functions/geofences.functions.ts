@@ -10,20 +10,23 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb, type Db } from '../server/db'
 import { electricityRate, geofence } from '../server/schema'
 import type { Geofence } from '../types/db'
 
 export const getGeofences = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<Geofence[]> => {
-    const db = getDb()
+  .handler(async ({ context }): Promise<Geofence[]> =>
+    withDb((db) => getGeofencesCore(db, context.userId)),
+  )
+
+export async function getGeofencesCore(db: Db, userId: string): Promise<Geofence[]> {
     return (await db
       .select()
       .from(geofence)
-      .where(eq(geofence.user_id, context.userId))
+      .where(eq(geofence.user_id, userId))
       .orderBy(asc(geofence.name))) as Geofence[]
-  })
+}
 
 const geofenceInput = z.object({
   id: z.number().int().positive().nullable().optional(),
@@ -41,8 +44,8 @@ const geofenceInput = z.object({
 export const upsertGeofence = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(geofenceInput)
-  .handler(async ({ data, context }): Promise<Geofence> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<Geofence> =>
+    withDb(async (db) => {
     const userId = context.userId
     const values = {
       user_id: userId,
@@ -97,18 +100,18 @@ export const upsertGeofence = createServerFn({ method: 'POST' })
         })
     }
     return row
-  })
+  }))
 
 export const deleteGeofence = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ id: z.number().int().positive() }))
-  .handler(async ({ data, context }): Promise<{ deleted: number }> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<{ deleted: number }> =>
+    withDb(async (db) => {
     const res = await db
       .delete(geofence)
       .where(and(eq(geofence.id, data.id), eq(geofence.user_id, context.userId)))
     return { deleted: (res as { count?: number }).count ?? 0 }
-  })
+  }))
 
 /**
  * Ensure a "Home" geofence row exists mirroring electricity_rate.home_*. Called
@@ -116,8 +119,8 @@ export const deleteGeofence = createServerFn({ method: 'POST' })
  */
 export const seedHomeGeofence = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<Geofence | null> => {
-    const db = getDb()
+  .handler(async ({ context }): Promise<Geofence | null> =>
+    withDb(async (db) => {
     const userId = context.userId
     const [rate] = await db
       .select()
@@ -147,4 +150,4 @@ export const seedHomeGeofence = createServerFn({ method: 'POST' })
       .onConflictDoNothing()
       .returning()
     return (rows[0] as Geofence) ?? null
-  })
+  }))

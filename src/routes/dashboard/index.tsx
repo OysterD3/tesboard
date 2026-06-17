@@ -4,6 +4,7 @@ import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON } from '../../components/dashboard/theme'
 import { buildOverview } from '../../lib/dashboard-vm'
+import { useDisplayTz } from '../../lib/use-hydrated'
 import { cn } from '../../lib/utils'
 import {
   distUnit,
@@ -28,7 +29,7 @@ const TX = 'var(--tx,#1d1d1f)'
 function OverviewPage() {
   const { overview, readiness, drives, linked, activeVin } = dashApi.useLoaderData()
   const { units: u, accent, theme } = useDash()
-  const vm = buildOverview(overview, readiness, drives, activeVin)
+  const vm = buildOverview(overview, readiness, drives, activeVin, useDisplayTz())
   const navigate = useNavigate()
 
   if (!vm.hasSnapshot) {

@@ -30,7 +30,10 @@ interface NominatimResult {
 /** Reverse-geocode one point. Returns the raw Nominatim result, or null on any error. */
 export async function reverseGeocode(lat: number, lng: number): Promise<NominatimResult | null> {
   try {
-    const url = `${NOMINATIM_BASE}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+    // zoom=17 (street) not 18 (building): at building zoom Nominatim snaps a point
+    // inside a mall/complex to an individual shop polygon, so the road/area fields
+    // come back as that tenant's address. Street zoom keeps them locality-level.
+    const url = `${NOMINATIM_BASE}/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&addressdetails=1`
     const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } })
     if (!res.ok) return null
     return (await res.json()) as NominatimResult

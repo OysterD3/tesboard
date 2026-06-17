@@ -34,16 +34,20 @@ export interface AddressLabelParts {
 }
 
 /**
- * Shortest meaningful place label from an address row: a POI name if present,
- * else the road, neighbourhood, city, or the first segment of the full address.
+ * Shortest meaningful place label from an address row. Prefers the *locality*
+ * (road → neighbourhood → city) over the POI `name`, because at building zoom
+ * Nominatim resolves a point inside a mall/complex to an individual shop tenant
+ * (e.g. "HyperGear") rather than the area you'd recognise ("Mid Valley City").
+ * The POI `name` and the full `display_name` remain as fallbacks for points that
+ * have no structured locality at all (e.g. a remote landmark known only by name).
  * Pure; shared by the drives and charging location resolvers.
  */
 export function addressLabel(a: AddressLabelParts): string | null {
   const seg =
-    a.name?.trim() ||
     a.road?.trim() ||
     a.neighbourhood?.trim() ||
     a.city?.trim() ||
+    a.name?.trim() ||
     a.display_name?.split(',')[0]?.trim() ||
     null
   return seg || null

@@ -5,7 +5,7 @@
  * billed session so historical Supercharger spend still shows up.
  */
 import { and, asc, eq, gte, isNull, lte } from 'drizzle-orm'
-import { getDb, type Db } from './db'
+import { withDb, type Db } from './db'
 import { chargeSession, vehicle } from './schema'
 import { ASLEEP, createTeslaClient, getChargingHistory } from './tesla/client.server'
 import type { TeslaChargingHistoryRecord } from './tesla/types'
@@ -20,7 +20,7 @@ export interface ReconcileSummary {
 }
 
 export async function reconcileAllUsers(maxPages = 5): Promise<ReconcileSummary> {
-  const db = getDb()
+  return withDb(async (db) => {
   const summary: ReconcileSummary = { imported: 0, matched: 0, inserted: 0, errors: [] }
   const vehicles = await db
     .select({ vin: vehicle.vin, user_id: vehicle.user_id })
@@ -48,6 +48,7 @@ export async function reconcileAllUsers(maxPages = 5): Promise<ReconcileSummary>
     }
   }
   return summary
+  })
 }
 
 function billedTotals(rec: TeslaChargingHistoryRecord) {

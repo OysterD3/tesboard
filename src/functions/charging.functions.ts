@@ -6,8 +6,8 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
-import { vinFilter } from './vin'
+import { withDb, type Db } from '../server/db'
+import { vinFilter, type VinFilter } from './vin'
 import { address, chargeSession, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
 import type { ChargeSession } from '../types/db'
@@ -35,15 +35,22 @@ export interface ChargingPayload {
 export const getCharging = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(vinFilter)
-  .handler(async ({ data, context }): Promise<ChargingPayload> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<ChargingPayload> =>
+    withDb((db) => getChargingCore(db, context.userId, data)),
+  )
+
+export async function getChargingCore(
+  db: Db,
+  userId: string,
+  data: VinFilter,
+): Promise<ChargingPayload> {
     const vin = data?.vin
     const rows = await db
       .select()
       .from(chargeSession)
       .where(
         and(
-          eq(chargeSession.user_id, context.userId),
+          eq(chargeSession.user_id, userId),
           vin ? eq(chargeSession.vin, vin) : undefined,
         ),
       )
@@ -68,13 +75,13 @@ export const getCharging = createServerFn({ method: 'GET' })
             display_name: address.display_name,
           })
           .from(address)
-          .where(and(eq(address.user_id, context.userId), inArray(address.id, addrIds)))
+          .where(and(eq(address.user_id, userId), inArray(address.id, addrIds)))
       : []
     const geoRows = geoIds.length
       ? await db
           .select({ id: geofence.id, name: geofence.name })
           .from(geofence)
-          .where(and(eq(geofence.user_id, context.userId), inArray(geofence.id, geoIds)))
+          .where(and(eq(geofence.user_id, userId), inArray(geofence.id, geoIds)))
       : []
 
     const addrMap = new Map(addrRows.map((a) => [a.id, a]))
@@ -91,7 +98,7 @@ export const getCharging = createServerFn({ method: 'GET' })
 
     const stats = summarize(sessions)
     return { sessions, stats }
-  })
+}
 
 function summarize(sessions: ChargeSession[]): ChargingStats {
   let totalEnergyKwh = 0
@@ -159,8 +166,8 @@ export interface ChargeDetail {
 export const getChargeDetail = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(z.object({ sessionId: z.number().int().positive() }))
-  .handler(async ({ data, context }): Promise<ChargeDetail> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<ChargeDetail> =>
+    withDb(async (db) => {
     const userId = context.userId
     const empty: ChargeDetail = { hasData: false, curve: [], taperFrac: null, peakKw: null, soc0: null, soc1: null, hit80: null, hit100: null, minAbove80: 0 }
 
@@ -227,7 +234,7 @@ export const getChargeDetail = createServerFn({ method: 'GET' })
       hit100,
       minAbove80,
     }
-  })
+  }))
 
 /** Evenly sample down to at most `max` points so the chart path stays light. */
 function downsample(arr: number[], max: number): number[] {

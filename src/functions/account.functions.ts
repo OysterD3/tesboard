@@ -6,7 +6,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { eq } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
-import { dbErrorMessage, getDb } from '../server/db'
+import { dbErrorMessage, withDb } from '../server/db'
 import { getSessionUser } from '../server/db.server'
 import { teslaAccount, teslaToken, vehicle } from '../server/schema'
 import { createTeslaClient, listVehicles } from '../server/tesla/client.server'
@@ -24,7 +24,7 @@ export const getAuthStatus = createServerFn({ method: 'GET' }).handler(
     const user = await getSessionUser()
     if (!user) return { authed: false, email: null, teslaLinked: false }
 
-    const db = getDb()
+    return withDb(async (db) => {
     try {
       const rows = await db
         .select({ user_id: teslaToken.user_id })
@@ -36,6 +36,7 @@ export const getAuthStatus = createServerFn({ method: 'GET' }).handler(
       // Surface the real postgres-js cause (otherwise SSR serialization hides it).
       throw new Error(`getAuthStatus DB query failed: ${dbErrorMessage(e)}`)
     }
+    })
   },
 )
 
@@ -54,8 +55,8 @@ export interface ResyncResult {
  */
 export const resyncTesla = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<ResyncResult> => {
-    const db = getDb()
+  .handler(async ({ context }): Promise<ResyncResult> =>
+    withDb(async (db) => {
     const userId = context.userId
 
     // 1) Resolve region (best-effort; capture but don't fail the whole sync).
@@ -132,4 +133,4 @@ export const resyncTesla = createServerFn({ method: 'POST' })
         message: `${dbErrorMessage(e)}${regionWarning ? ` | region lookup also failed: ${regionWarning}` : ''}`,
       }
     }
-  })
+    }))

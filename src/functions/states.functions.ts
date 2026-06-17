@@ -6,11 +6,12 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, desc, eq, gte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb, type Db } from '../server/db'
 import { softwareUpdate, vehicleState } from '../server/schema'
 import type { SoftwareUpdate, VehicleState } from '../types/db'
 
 const input = z.object({ vin: z.string().optional(), days: z.number().int().min(1).max(365).default(30) })
+export type StatesInput = z.infer<typeof input>
 
 export interface StatesResult {
   intervals: VehicleState[]
@@ -20,15 +21,22 @@ export interface StatesResult {
 export const getStates = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(input)
-  .handler(async ({ data, context }): Promise<StatesResult> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<StatesResult> =>
+    withDb((db) => getStatesCore(db, context.userId, data)),
+  )
+
+export async function getStatesCore(
+  db: Db,
+  userId: string,
+  data: StatesInput,
+): Promise<StatesResult> {
     const since = new Date(Date.now() - data.days * 86400_000).toISOString()
     const intervals = (await db
       .select()
       .from(vehicleState)
       .where(
         and(
-          eq(vehicleState.user_id, context.userId),
+          eq(vehicleState.user_id, userId),
           data.vin ? eq(vehicleState.vin, data.vin) : undefined,
           gte(vehicleState.started_at, since),
         ),
@@ -47,13 +55,13 @@ export const getStates = createServerFn({ method: 'GET' })
       .sort((a, b) => b.seconds - a.seconds)
 
     return { intervals, timeInState }
-  })
+}
 
 export const getSoftwareUpdates = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(z.object({ vin: z.string().optional() }))
-  .handler(async ({ data, context }): Promise<SoftwareUpdate[]> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<SoftwareUpdate[]> =>
+    withDb(async (db) => {
     return (await db
       .select()
       .from(softwareUpdate)
@@ -64,4 +72,4 @@ export const getSoftwareUpdates = createServerFn({ method: 'GET' })
         ),
       )
       .orderBy(desc(softwareUpdate.started_at))) as SoftwareUpdate[]
-  })
+  }))

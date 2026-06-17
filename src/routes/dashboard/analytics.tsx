@@ -2,6 +2,7 @@ import { createFileRoute, getRouteApi } from '@tanstack/react-router'
 import { Card, EmptyCard, ViewTitle } from '../../components/dashboard/primitives'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { distUnit, effFromWhKm, effSuffix, fmtDist, fmtTemp, tempUnit } from '../../lib/units'
+import { useDisplayTz } from '../../lib/use-hydrated'
 
 export const Route = createFileRoute('/dashboard/analytics')({ component: AnalyticsPage })
 
@@ -29,6 +30,7 @@ const STATE_COLORS: Record<string, string> = {
 
 function AnalyticsPage() {
   const { battery, efficiency, mileage, states, timeline } = dashApi.useLoaderData()
+  const tz = useDisplayTz()
   const { units: u, accent } = useDash()
 
   return (
@@ -162,7 +164,7 @@ function AnalyticsPage() {
                 {e.detail && <span style={{ fontSize: 12, fontWeight: 500, color: TD, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.detail}</span>}
               </div>
               <span style={{ fontSize: 11, fontWeight: 500, color: TD, flex: 'none' }}>
-                {new Date(e.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {new Date(e.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })}
               </span>
             </div>
           ))}

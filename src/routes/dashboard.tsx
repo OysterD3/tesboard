@@ -8,18 +8,7 @@ import {
 } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { getAuthStatus } from '../functions/account.functions'
-import { getOverview, type VehicleWithLatest } from '../functions/overview.functions'
-import { getDepartureReadiness } from '../functions/readiness.functions'
-import { getDrives } from '../functions/drives.functions'
-import { getCharging } from '../functions/charging.functions'
-import { getRate } from '../functions/rate.functions'
-import { getPhantomDrain } from '../functions/insights.functions'
-import { getBatteryHealth } from '../functions/battery.functions'
-import { getEfficiencyAnalysis } from '../functions/efficiency-analysis.functions'
-import { getMileage } from '../functions/mileage.functions'
-import { getStates } from '../functions/states.functions'
-import { getTimeline } from '../functions/timeline.functions'
-import { getGeofences } from '../functions/geofences.functions'
+import { getDashboardData } from '../functions/dashboard-data.functions'
 import { DashboardProvider, useDash } from '../components/dashboard/DashboardProvider'
 import { Icon, Card } from '../components/dashboard/primitives'
 import { ICON, SECTION, themeVars } from '../components/dashboard/theme'
@@ -28,29 +17,6 @@ interface DashSearch {
   vin?: string
   tesla_error?: string
   tesla_linked?: string
-}
-
-/**
- * Pick the active vehicle: the requested vin if it's one the user owns,
- * otherwise the most-recently-active car (latest snapshot wins; ISO timestamps
- * sort lexicographically). Null only when the account has no vehicles yet.
- */
-function resolveActiveVin(
-  vehicles: VehicleWithLatest[],
-  requested: string | undefined,
-): string | null {
-  if (vehicles.length === 0) return null
-  if (requested && vehicles.some((v) => v.vehicle.vin === requested)) return requested
-  let best = vehicles[0]
-  let bestAt = best.latest?.recorded_at ?? ''
-  for (const v of vehicles) {
-    const at = v.latest?.recorded_at ?? ''
-    if (at > bestAt) {
-      best = v
-      bestAt = at
-    }
-  }
-  return best.vehicle.vin
 }
 
 export const Route = createFileRoute('/dashboard')({
@@ -68,44 +34,17 @@ export const Route = createFileRoute('/dashboard')({
   loader: async ({ context, deps }) => {
     const linked = context.auth.teslaLinked
 
-    // Overview carries the full vehicle list (for the switcher) regardless of vin.
-    const overview = await getOverview({ data: { vin: deps.vin } })
-    // Resolve the active car server-side (requested vin if owned, else the most
-    // recently active). `vin` stays OUT of the URL by default — it's only added
-    // when the user explicitly switches cars via the picker. So the parent's data
-    // is always scoped to one car while the URL stays clean (`/dashboard`).
-    const activeVin = resolveActiveVin(overview.vehicles, deps.vin)
-    const vin = activeVin ?? undefined
-    const [readiness, drives, charging, rate, phantom, battery, efficiency, mileage, states, timeline, geofences] =
-      await Promise.all([
-        getDepartureReadiness({ data: { vin } }),
-        getDrives({ data: { vin } }),
-        getCharging({ data: { vin } }),
-        getRate(),
-        getPhantomDrain({ data: { vin } }),
-        getBatteryHealth({ data: { vin } }),
-        getEfficiencyAnalysis({ data: { vin } }),
-        getMileage({ data: { vin, period: 'month' } }),
-        getStates({ data: { vin, days: 30 } }),
-        getTimeline({ data: { vin, days: 30 } }),
-        getGeofences(),
-      ])
+    // ONE server fn → ONE database connection for the whole SSR render. (Calling
+    // the ~12 reads as separate server fns opened ~12 connections in a single
+    // Worker request and blew past Cloudflare's 6-connections-per-request limit →
+    // "Network connection lost" on refresh. See dashboard-data.functions.ts.)
+    // The active car is resolved server-side (requested vin if owned, else the
+    // most-recently-active); `vin` stays out of the URL unless the user switches.
+    const data = await getDashboardData({ data: { vin: deps.vin } })
     return {
       auth: context.auth,
       linked,
-      overview,
-      readiness,
-      drives,
-      charging,
-      rate,
-      phantom,
-      battery,
-      efficiency,
-      mileage,
-      states,
-      timeline,
-      geofences,
-      activeVin,
+      ...data,
     }
   },
   component: () => (

@@ -13,7 +13,7 @@ import { eq } from 'drizzle-orm'
 import { exchangeCodeForToken, getUserRegion } from '../../../../server/tesla/oauth'
 import { clearOAuthCookie, readOAuthCookie } from '../../../../server/oauth-cookie'
 import { getSessionUser } from '../../../../server/db.server'
-import { getDb } from '../../../../server/db'
+import { withDb } from '../../../../server/db'
 import { teslaAccount, vehicle } from '../../../../server/schema'
 import { saveToken } from '../../../../server/tesla/token-store'
 import { createTeslaClient, listVehicles } from '../../../../server/tesla/client.server'
@@ -66,7 +66,7 @@ async function handleCallback(): Promise<Response> {
 
   const token = await exchangeCodeForToken({ code, codeVerifier: stash.verifier })
 
-  const db = getDb()
+  return await withDb(async (db) => {
   await saveToken(db, user.id, token)
 
   // Seed account row, then resolve the correct regional base URL.
@@ -141,6 +141,7 @@ async function handleCallback(): Promise<Response> {
   }
 
   return redirectTo('/dashboard?tesla_linked=1')
+  })
 }
 
 function safeEqual(a: string, b: string): boolean {

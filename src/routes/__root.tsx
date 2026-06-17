@@ -43,7 +43,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
+      {/* suppressHydrationWarning: browser extensions (e.g. ColorZilla adds
+          `cz-shortcut-listen`, Grammarly, dark-mode tools) inject attributes onto
+          <body> before React hydrates, which would otherwise throw a hydration
+          mismatch. Suppression here is one level deep (body's own attrs only). */}
+      <body
+        suppressHydrationWarning
+        className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]"
+      >
         {children}
         <TanStackDevtools
           config={{

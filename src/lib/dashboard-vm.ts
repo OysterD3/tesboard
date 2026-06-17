@@ -23,20 +23,42 @@ function round(n: number, d = 0): number {
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
-function fmtWhen(iso: string | null): string {
+/**
+ * Format a timestamp as "Today/Yesterday/Mon D · h:mm AM" in time zone `tz`.
+ * `tz` is undefined for the runtime's local zone, or 'UTC' during SSR / first
+ * client render so server and client agree (see useDisplayTz / hydration note).
+ * The day comparison is done in the SAME zone (en-CA → YYYY-MM-DD) so the
+ * Today/Yesterday label can't flip between server and client.
+ */
+function fmtWhen(iso: string | null, tz?: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   const now = new Date()
-  const sameDay = d.toDateString() === now.toDateString()
-  const yest = new Date(now)
-  yest.setDate(now.getDate() - 1)
-  const isYest = d.toDateString() === yest.toDateString()
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  if (sameDay) return `Today · ${time}`
-  if (isYest) return `Yesterday · ${time}`
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const dayKey = (x: Date) => x.toLocaleDateString('en-CA', { timeZone: tz })
+  const dk = dayKey(d)
+  const today = dayKey(now)
+  const yesterday = dayKey(new Date(now.getTime() - 86_400_000))
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
+  if (dk === today) return `Today · ${time}`
+  if (dk === yesterday) return `Yesterday · ${time}`
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
   return `${date} · ${time}`
+}
+
+/**
+ * Stable month bucket for grouping/filtering long lists. `monthKey` (YYYY-MM) is
+ * the machine key; `monthLabel` ("May 2026") is for display. Computed in `tz` (same
+ * zone the rows are formatted in) so the bucket can't drift between server/client.
+ */
+function monthParts(iso: string | null, tz?: string): { monthKey: string; monthLabel: string } {
+  if (!iso) return { monthKey: 'unknown', monthLabel: 'Unknown date' }
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return { monthKey: 'unknown', monthLabel: 'Unknown date' }
+  return {
+    monthKey: d.toLocaleDateString('en-CA', { timeZone: tz }).slice(0, 7), // YYYY-MM
+    monthLabel: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: tz }),
+  }
 }
 
 function relativeAgo(iso: string | null): string | null {
@@ -80,6 +102,7 @@ export function buildOverview(
   readiness: DepartureReadinessPayload,
   drives: DrivesPayload,
   activeVin?: string | null,
+  tz?: string,
 ): OverviewVM {
   const vw =
     (activeVin ? overview.vehicles.find((v) => v.vehicle.vin === activeVin) : null) ??
@@ -106,7 +129,7 @@ export function buildOverview(
   const liveDrive = drives.drives[0]
   const lastDrive: OverviewVM['lastDrive'] = liveDrive
     ? {
-        title: fmtWhen(liveDrive.started_at),
+        title: fmtWhen(liveDrive.started_at, tz),
         distKm: liveDrive.distance_mi != null ? round(miToKm(liveDrive.distance_mi), 1) : 0,
         durMin: liveDrive.duration_s != null ? Math.round(liveDrive.duration_s / 60) : 0,
         effWhKm: liveDrive.wh_per_mi != null ? round(whPerMiToWhKm(liveDrive.wh_per_mi)) : null,
@@ -151,6 +174,9 @@ export interface DriveVM {
   driveId: number
   title: string
   when: string
+  /** Month bucket for grouping/filtering: machine key (YYYY-MM) + display label. */
+  monthKey: string
+  monthLabel: string
   distKm: number
   durMin: number
   avgKph: number
@@ -159,7 +185,7 @@ export interface DriveVM {
   endpoints: [number, number][]
 }
 
-export function buildDrives(payload: DrivesPayload): DriveVM[] {
+export function buildDrives(payload: DrivesPayload, tz?: string): DriveVM[] {
   return payload.drives.map((d) => {
     const distKm = d.distance_mi != null ? miToKm(d.distance_mi) : 0
     const durMin = d.duration_s != null ? Math.round(d.duration_s / 60) : 0
@@ -176,12 +202,13 @@ export function buildDrives(payload: DrivesPayload): DriveVM[] {
     return {
       id: String(d.id),
       driveId: d.id,
-      title: place ?? fmtWhen(d.started_at),
+      ...monthParts(d.started_at, tz),
+      title: place ?? fmtWhen(d.started_at, tz),
       when: place
-        ? fmtWhen(d.started_at)
+        ? fmtWhen(d.started_at, tz)
         : d.start_battery_level != null && d.end_battery_level != null
           ? `${d.start_battery_level}% → ${d.end_battery_level}%`
-          : new Date(d.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          : new Date(d.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz }),
       distKm: round(distKm, 1),
       durMin,
       avgKph,
@@ -198,6 +225,9 @@ export interface SessionVM {
   sessionId: number
   loc: string
   when: string
+  /** Month bucket for grouping/filtering: machine key (YYYY-MM) + display label. */
+  monthKey: string
+  monthLabel: string
   type: string
   isFast: boolean
   addedKwh: number | null
@@ -206,7 +236,7 @@ export interface SessionVM {
   currency: string
 }
 
-export function buildSessions(payload: ChargingPayload): SessionVM[] {
+export function buildSessions(payload: ChargingPayload, tz?: string): SessionVM[] {
   return payload.sessions.map((s) => {
     const isFast = s.source === 'supercharger'
     const durMin =
@@ -216,8 +246,9 @@ export function buildSessions(payload: ChargingPayload): SessionVM[] {
     return {
       id: String(s.id),
       sessionId: s.id,
+      ...monthParts(s.started_at, tz),
       loc: s.locationName ?? s.location_name ?? (isFast ? 'Supercharger' : 'Charge session'),
-      when: fmtWhen(s.started_at),
+      when: fmtWhen(s.started_at, tz),
       type: isFast ? 'DC fast' : 'AC',
       isFast,
       addedKwh: s.energy_added_kwh != null ? round(s.energy_added_kwh, 1) : null,

@@ -2,6 +2,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { dismissAnomaly, getAnomalies } from '../../functions/anomalies.functions'
 import { EmptyState, dateTime } from '../../components/Stat'
+import { useDisplayTz } from '../../lib/use-hydrated'
 import type { AnomalyFlag } from '../../types/db'
 
 export const Route = createFileRoute('/dashboard/flags')({
@@ -55,6 +56,7 @@ function FlagsPage() {
 
 function FlagRow({ flag, dismissed }: { flag: AnomalyFlag; dismissed?: boolean }) {
   const router = useRouter()
+  const tz = useDisplayTz()
   const [busy, setBusy] = useState(false)
   const isWarning = flag.severity === 'warning'
 
@@ -81,7 +83,7 @@ function FlagRow({ flag, dismissed }: { flag: AnomalyFlag; dismissed?: boolean }
           >
             {TYPE_LABEL[flag.type] ?? flag.type}
           </span>
-          <span className="text-xs text-[var(--sea-ink-soft)]">{dateTime(flag.created_at)}</span>
+          <span className="text-xs text-[var(--sea-ink-soft)]">{dateTime(flag.created_at, tz)}</span>
         </div>
         <p className="m-0 text-sm text-[var(--sea-ink)]">{flag.message}</p>
       </div>

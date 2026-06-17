@@ -8,7 +8,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb, type Db } from '../server/db'
 import { vinFilter } from './vin'
 import { classifyChargeLocation, findGeofence } from '../server/geo'
 import { computeChargeCost } from '../server/cost'
@@ -17,15 +17,18 @@ import type { ChargeSession, ElectricityRate, Geofence } from '../types/db'
 
 export const getRate = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<ElectricityRate | null> => {
-    const db = getDb()
+  .handler(async ({ context }): Promise<ElectricityRate | null> =>
+    withDb((db) => getRateCore(db, context.userId)),
+  )
+
+export async function getRateCore(db: Db, userId: string): Promise<ElectricityRate | null> {
     const rows = await db
       .select()
       .from(electricityRate)
-      .where(eq(electricityRate.user_id, context.userId))
+      .where(eq(electricityRate.user_id, userId))
       .limit(1)
     return (rows[0] as ElectricityRate) ?? null
-  })
+}
 
 const rateInput = z
   .object({
@@ -44,8 +47,8 @@ const rateInput = z
 export const saveRate = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(rateInput)
-  .handler(async ({ data, context }): Promise<ElectricityRate> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<ElectricityRate> =>
+    withDb(async (db) => {
     const values = {
       user_id: context.userId,
       kind: 'flat',
@@ -77,7 +80,7 @@ export const saveRate = createServerFn({ method: 'POST' })
       })
       .returning()
     return rows[0] as ElectricityRate
-  })
+  }))
 
 /** Newest stored GPS fix — used by Settings to one-click prefill the home location. */
 export const getLatestVehicleGps = createServerFn({ method: 'GET' })
@@ -87,8 +90,8 @@ export const getLatestVehicleGps = createServerFn({ method: 'GET' })
     async ({
       data,
       context,
-    }): Promise<{ lat: number; lng: number; recorded_at: string } | null> => {
-      const db = getDb()
+    }): Promise<{ lat: number; lng: number; recorded_at: string } | null> =>
+      withDb(async (db) => {
       const vin = data?.vin
       const rows = await db
         .select({
@@ -110,7 +113,7 @@ export const getLatestVehicleGps = createServerFn({ method: 'GET' })
       return r && r.lat != null && r.lng != null
         ? { lat: r.lat, lng: r.lng, recorded_at: r.recorded_at }
         : null
-    },
+    }),
   )
 
 /**
@@ -120,8 +123,8 @@ export const getLatestVehicleGps = createServerFn({ method: 'GET' })
  */
 export const reclassifyCharges = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<{ reclassified: number; recosted: number }> => {
-    const db = getDb()
+  .handler(async ({ context }): Promise<{ reclassified: number; recosted: number }> =>
+    withDb(async (db) => {
     const userId = context.userId
     const rateRows = await db
       .select()
@@ -226,4 +229,4 @@ export const reclassifyCharges = createServerFn({ method: 'POST' })
       }
     }
     return { reclassified, recosted }
-  })
+  }))

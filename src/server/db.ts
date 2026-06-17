@@ -11,7 +11,17 @@
  *     server-side prepared statements).
  *   - `fetch_types: false` — skip postgres-js's per-connection type-introspection
  *     round-trip (recommended with Hyperdrive / poolers).
- *   - `max: 5`          — Hyperdrive multiplexes; a small client pool is plenty.
+ *   - `max: 5`          — Cloudflare caps a Worker at **6 simultaneous open
+ *     outbound connections per request**; 7+ queue and a pool that holds some open
+ *     while waiting for more can DEADLOCK / get sockets dropped → "Network
+ *     connection lost". `max: 5` keeps one client safely under that ceiling. The
+ *     hard rule this enforces: **exactly ONE getDb() client per request.** The SSR
+ *     dashboard loader used to fan out ~12 server fns, each calling getDb() in the
+ *     SAME request → 12 clients × ≥1 socket = >6 simultaneous connections → random,
+ *     self-recovering "Failed query / Network connection lost" (only on refresh,
+ *     since client-side navigation issues each fn as its own request). The fix:
+ *     the dashboard loader now calls ONE aggregate server fn (getDashboardData)
+ *     that shares a single client via `withDb`. Always wrap DB work in `withDb`.
  *
  * Migrations do NOT go through here — drizzle-kit connects directly (DIRECT_URL).
  *
@@ -34,10 +44,34 @@ export function getDb() {
   const client = postgres(url, {
     prepare: false,
     fetch_types: false,
-    max: 5,
-    idle_timeout: 20, // let idle connections close instead of lingering per request
+    max: 5, // see header — ≤6 simultaneous outbound conns per Worker request
+    idle_timeout: 20, // backstop close of idle sockets (withDb closes explicitly)
   })
   return drizzle(client, { schema })
+}
+
+/**
+ * Run DB work on a single request-scoped client, then CLOSE it.
+ *
+ * Closing matters on Cloudflare Workers: an unclosed postgres-js pool keeps its
+ * sockets open (until idle_timeout), and those count against the per-request
+ * 6-connection ceiling. `withDb` guarantees exactly one client per call and frees
+ * its sockets as soon as the work finishes — so concurrent server fns (or the
+ * aggregate dashboard loader) never accumulate connections. Pass the injected
+ * `db` straight to the query helpers; do NOT call getDb() again inside `fn`.
+ */
+export async function withDb<T>(fn: (db: Db) => Promise<T>): Promise<T> {
+  const db = getDb()
+  try {
+    return await fn(db)
+  } finally {
+    // Best-effort close; a failed teardown must not mask the real result/error.
+    try {
+      await db.$client.end({ timeout: 5 })
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /**

@@ -1,4 +1,4 @@
-import { createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { createFileRoute, getRouteApi, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { Card, EmptyCard, Icon, ListRow, RowDot, ViewTitle } from '../../components/dashboard/primitives'
@@ -7,7 +7,11 @@ import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
+import { useDisplayTz } from '../../lib/use-hydrated'
+import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
+import { groupByMonth, monthOptions } from '../../lib/month-group'
 import { getDriveRoute } from '../../functions/drives.functions'
+import { backfillAddresses } from '../../functions/geocode.functions'
 import { distUnit, fmtDist, fmtSpeed, speedUnit } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives')({
@@ -25,9 +29,13 @@ function DrivesPage() {
   const { drives } = dashApi.useLoaderData()
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
-  const list = buildDrives(drives)
-  const [selId, setSelId] = useState(list[0]?.id)
-  const sel = list.find((d) => d.id === selId) ?? list[0]
+  const all = buildDrives(drives, useDisplayTz())
+  const months = monthOptions(all)
+  const [month, setMonth] = useState('all')
+  const visible = month === 'all' ? all : all.filter((d) => d.monthKey === month)
+  const rows = groupByMonth(visible, (d) => d.id)
+  const [selId, setSelId] = useState(all[0]?.id)
+  const sel = visible.find((d) => d.id === selId) ?? visible[0]
 
   const fetchRoute = useServerFn(getDriveRoute)
   const [fetched, setFetched] = useState<Fetched | null>(null)
@@ -47,7 +55,7 @@ function DrivesPage() {
     }
   }, [sel?.id, sel?.driveId, fetchRoute])
 
-  if (list.length === 0) {
+  if (all.length === 0) {
     return (
       <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <ViewTitle>Drives</ViewTitle>
@@ -70,7 +78,10 @@ function DrivesPage() {
 
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <ViewTitle>Drives</ViewTitle>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <ViewTitle>Drives</ViewTitle>
+        <ResolveLocationsButton isDark={isDark} />
+      </div>
 
       {sel && (
         <Card radius={22} style={{ padding: 14 }}>
@@ -96,10 +107,14 @@ function DrivesPage() {
         </Card>
       )}
 
+      <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
+
       <VirtualList
-        items={list}
-        getKey={(d) => d.id}
-        renderRow={(d) => {
+        items={rows}
+        getKey={(r) => r.key}
+        renderRow={(r) => {
+          if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
+          const d = r.item
           const active = d.id === sel?.id
           return (
             <ListRow
@@ -129,6 +144,75 @@ function DrivesPage() {
         }}
       />
     </div>
+  )
+}
+
+/**
+ * Reverse-geocode backfill trigger. Loops `backfillAddresses` (throttled
+ * server-side) until nothing new resolves, then invalidates the loader so the
+ * freshly-named drives (and charges) re-render. Names live rows the way the
+ * TeslaMate import already named historical ones.
+ */
+function ResolveLocationsButton({ isDark }: { isDark: boolean }) {
+  const router = useRouter()
+  const run = useServerFn(backfillAddresses)
+  const [st, setSt] = useState<{ running: boolean; named: number; remaining: number | null; done: boolean }>({
+    running: false,
+    named: 0,
+    remaining: null,
+    done: false,
+  })
+
+  async function resolve() {
+    if (st.running) return
+    setSt({ running: true, named: 0, remaining: null, done: false })
+    let named = 0
+    try {
+      for (let i = 0; i < 80; i++) {
+        const r = await run()
+        named += r.linked
+        setSt({ running: true, named, remaining: r.remaining, done: false })
+        if (r.linked === 0 || r.remaining === 0) break
+      }
+    } catch {
+      /* finalize below */
+    } finally {
+      await router.invalidate()
+      setSt((s) => ({ ...s, running: false, done: true }))
+    }
+  }
+
+  const label = st.running
+    ? `Resolving… ${st.named}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
+    : st.done
+      ? st.remaining
+        ? `Named ${st.named} · ${st.remaining} left`
+        : `Named ${st.named}`
+      : 'Resolve place names'
+
+  return (
+    <button
+      type="button"
+      onClick={resolve}
+      disabled={st.running}
+      title="Look up street names for drives/charges that only show a time"
+      style={{
+        flex: 'none',
+        cursor: st.running ? 'default' : 'pointer',
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: '-0.01em',
+        color: st.running ? TD : COLOR,
+        background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
+        border: `1px solid ${st.running ? 'var(--border,rgba(0,0,0,0.08))' : COLOR}`,
+        borderRadius: 30,
+        padding: '7px 14px',
+        whiteSpace: 'nowrap',
+        opacity: st.running ? 0.8 : 1,
+      }}
+    >
+      {label}
+    </button>
   )
 }
 

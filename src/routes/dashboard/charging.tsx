@@ -6,6 +6,9 @@ import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, SECTION } from '../../components/dashboard/theme'
 import { buildSessions } from '../../lib/dashboard-vm'
+import { useDisplayTz } from '../../lib/use-hydrated'
+import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
+import { groupByMonth, monthOptions } from '../../lib/month-group'
 import { getChargeDetail, type ChargeDetail } from '../../functions/charging.functions'
 
 export const Route = createFileRoute('/dashboard/charging')({
@@ -34,9 +37,13 @@ function ChargingPage() {
   const { charging } = dashApi.useLoaderData()
   const { theme } = useDash()
   const isDark = theme === 'dark'
-  const list = buildSessions(charging)
-  const [selId, setSelId] = useState(list[0]?.id)
-  const sel = list.find((s) => s.id === selId) ?? list[0]
+  const all = buildSessions(charging, useDisplayTz())
+  const months = monthOptions(all)
+  const [month, setMonth] = useState('all')
+  const visible = month === 'all' ? all : all.filter((s) => s.monthKey === month)
+  const rows = groupByMonth(visible, (s) => s.id)
+  const [selId, setSelId] = useState(all[0]?.id)
+  const sel = visible.find((s) => s.id === selId) ?? visible[0]
 
   const fetchDetail = useServerFn(getChargeDetail)
   const [fetched, setFetched] = useState<FetchedDetail | null>(null)
@@ -56,7 +63,7 @@ function ChargingPage() {
     }
   }, [sel?.id, sel?.sessionId, fetchDetail])
 
-  if (list.length === 0) {
+  if (all.length === 0) {
     return (
       <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <ViewTitle>Charging</ViewTitle>
@@ -124,10 +131,13 @@ function ChargingPage() {
       )}
 
       <span style={{ fontSize: 13, fontWeight: 600, color: TD, paddingLeft: 2 }}>History</span>
+      <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
       <VirtualList
-        items={list}
-        getKey={(c) => c.id}
-        renderRow={(c) => {
+        items={rows}
+        getKey={(r) => r.key}
+        renderRow={(r) => {
+          if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
+          const c = r.item
           const active = c.id === sel?.id
           return (
             <ListRow

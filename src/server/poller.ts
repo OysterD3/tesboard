@@ -10,7 +10,7 @@
  * read is scoped by user_id explicitly (app-enforced row ownership).
  */
 import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm'
-import { getDb, type Db } from './db'
+import { withDb, type Db } from './db'
 import {
   anomalyFlag,
   chargeSession,
@@ -33,6 +33,7 @@ import type { TeslaDriveState, TeslaVehicleData } from './tesla/types'
 import type { AnomalyCandidate } from './anomaly'
 import { detectEfficiencyDrop, detectSlowCharge } from './anomaly'
 import { classifyChargeLocation, findGeofence } from './geo'
+import { cachedAddressNear, findOrCreateAddress } from './geocode'
 import { computeChargeCost } from './cost'
 import { recalculateEfficiency } from './efficiency'
 import type { ElectricityRate, Geofence, Json } from '../types/db'
@@ -62,7 +63,7 @@ export interface PollSummary {
 }
 
 export async function runPollCycle(): Promise<PollSummary> {
-  const db = getDb()
+  return withDb(async (db) => {
   const summary: PollSummary = { users: 0, vehiclesPolled: 0, snapshots: 0, asleep: 0, errors: [] }
 
   const accounts = await db
@@ -78,6 +79,7 @@ export async function runPollCycle(): Promise<PollSummary> {
     }
   }
   return summary
+  })
 }
 
 async function pollUser(db: Db, userId: string, summary: PollSummary): Promise<void> {
@@ -457,6 +459,29 @@ async function updateDriveSession(
 
 /** Close a drive session using the last snapshot in the window (works for the
  *  normal path and the stale reaper alike). */
+/**
+ * Resolve a point to an `address.id` at drive-close. Always tries the free cache
+ * first; only when `allowNetwork` (the drive's END / new-destination case) does it
+ * fall back to a single Nominatim geocode. Returns null — never throws — so a
+ * geocoding hiccup can't break the poll.
+ */
+async function linkDriveAddress(
+  db: Db,
+  userId: string,
+  lat: number | null | undefined,
+  lng: number | null | undefined,
+  allowNetwork: boolean,
+): Promise<number | null> {
+  if (lat == null || lng == null) return null
+  const cached = await cachedAddressNear(db, userId, lat, lng)
+  if (cached != null || !allowNetwork) return cached
+  try {
+    return await findOrCreateAddress(db, userId, lat, lng)
+  } catch {
+    return null
+  }
+}
+
 async function closeDriveSession(
   db: Db,
   userId: string,
@@ -500,6 +525,14 @@ async function closeDriveSession(
     Math.round((new Date(endedAt).getTime() - new Date(open.started_at).getTime()) / 1000),
   )
 
+  // Name the drive's endpoints at close. The START is almost always a place you've
+  // left before (usually the previous drive's already-geocoded destination), so a
+  // free cache lookup suffices. The END is where you may be NEW, so it's cache-first
+  // then ONE Nominatim geocode — drive closes are infrequent (a few/day), well within
+  // Nominatim's ~1 req/s policy. Geocoding never blocks or fails the poll cycle.
+  const startAddrId = await linkDriveAddress(db, userId, open.start_lat, open.start_lng, false)
+  const endAddrId = await linkDriveAddress(db, userId, last?.latitude, last?.longitude, true)
+
   try {
     await db
       .update(driveSession)
@@ -510,6 +543,8 @@ async function closeDriveSession(
         duration_s: durationS,
         end_lat: last?.latitude ?? null,
         end_lng: last?.longitude ?? null,
+        start_address_id: startAddrId,
+        end_address_id: endAddrId,
         end_battery_level: endBL,
         start_range_mi: agg.startRange,
         end_range_mi: agg.endRange,

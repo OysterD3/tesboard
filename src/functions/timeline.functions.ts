@@ -6,18 +6,26 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, desc, eq, gte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb, type Db } from '../server/db'
 import { chargeSession, driveSession, softwareUpdate, vehicleState } from '../server/schema'
 import { mergeTimeline, type TimelineEvent } from '../lib/analytics-vm'
 
 const input = z.object({ vin: z.string().optional(), days: z.number().int().min(1).max(365).default(30) })
+export type TimelineInput = z.infer<typeof input>
 
 export const getTimeline = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(input)
-  .handler(async ({ data, context }): Promise<TimelineEvent[]> => {
-    const db = getDb()
-    const uid = context.userId
+  .handler(async ({ data, context }): Promise<TimelineEvent[]> =>
+    withDb((db) => getTimelineCore(db, context.userId, data)),
+  )
+
+export async function getTimelineCore(
+  db: Db,
+  userId: string,
+  data: TimelineInput,
+): Promise<TimelineEvent[]> {
+    const uid = userId
     const vin = data.vin
     const since = new Date(Date.now() - data.days * 86400_000).toISOString()
     const lim = 200
@@ -68,4 +76,4 @@ export const getTimeline = createServerFn({ method: 'GET' })
       ...updates.map((u): TimelineEvent => ({ kind: 'update', at: u.at, title: 'Software update', detail: u.version ?? undefined })),
     ]
     return mergeTimeline(events).slice(0, 300)
-  })
+}

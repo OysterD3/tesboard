@@ -7,11 +7,12 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, eq, gte, isNotNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb, type Db } from '../server/db'
 import { driveSession } from '../server/schema'
 import { binConsumptionByTemp, type ConsumptionBin, type ConsumptionPoint } from '../lib/analytics-vm'
 
 const input = z.object({ vin: z.string().optional(), days: z.number().int().min(1).max(3650).default(365) })
+export type EfficiencyInput = z.infer<typeof input>
 
 export interface EfficiencyAnalysisResult {
   bins: ConsumptionBin[]
@@ -23,15 +24,22 @@ export interface EfficiencyAnalysisResult {
 export const getEfficiencyAnalysis = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(input)
-  .handler(async ({ data, context }): Promise<EfficiencyAnalysisResult> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<EfficiencyAnalysisResult> =>
+    withDb((db) => getEfficiencyAnalysisCore(db, context.userId, data)),
+  )
+
+export async function getEfficiencyAnalysisCore(
+  db: Db,
+  userId: string,
+  data: EfficiencyInput,
+): Promise<EfficiencyAnalysisResult> {
     const since = new Date(Date.now() - data.days * 86400_000).toISOString()
     const rows = await db
       .select({ whPerMi: driveSession.wh_per_mi, tempC: driveSession.outside_temp_avg })
       .from(driveSession)
       .where(
         and(
-          eq(driveSession.user_id, context.userId),
+          eq(driveSession.user_id, userId),
           data.vin ? eq(driveSession.vin, data.vin) : undefined,
           gte(driveSession.started_at, since),
           isNotNull(driveSession.wh_per_mi),
@@ -49,4 +57,4 @@ export const getEfficiencyAnalysis = createServerFn({ method: 'GET' })
       avgWhPerMi: avg,
       sampleCount: points.length,
     }
-  })
+}

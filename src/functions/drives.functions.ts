@@ -6,8 +6,8 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
-import { vinFilter } from './vin'
+import { withDb, type Db } from '../server/db'
+import { vinFilter, type VinFilter } from './vin'
 import { address, driveSession, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
 import type { DriveSession } from '../types/db'
@@ -33,15 +33,22 @@ export interface DrivesPayload {
 export const getDrives = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(vinFilter)
-  .handler(async ({ data, context }): Promise<DrivesPayload> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<DrivesPayload> =>
+    withDb((db) => getDrivesCore(db, context.userId, data)),
+  )
+
+export async function getDrivesCore(
+  db: Db,
+  userId: string,
+  data: VinFilter,
+): Promise<DrivesPayload> {
     const vin = data?.vin
     const rows = await db
       .select()
       .from(driveSession)
       .where(
         and(
-          eq(driveSession.user_id, context.userId),
+          eq(driveSession.user_id, userId),
           isNotNull(driveSession.ended_at),
           vin ? eq(driveSession.vin, vin) : undefined,
         ),
@@ -76,13 +83,13 @@ export const getDrives = createServerFn({ method: 'GET' })
             display_name: address.display_name,
           })
           .from(address)
-          .where(and(eq(address.user_id, context.userId), inArray(address.id, addrIds)))
+          .where(and(eq(address.user_id, userId), inArray(address.id, addrIds)))
       : []
     const geoRows = geoIds.length
       ? await db
           .select({ id: geofence.id, name: geofence.name })
           .from(geofence)
-          .where(and(eq(geofence.user_id, context.userId), inArray(geofence.id, geoIds)))
+          .where(and(eq(geofence.user_id, userId), inArray(geofence.id, geoIds)))
       : []
 
     const addrMap = new Map(addrRows.map((a) => [a.id, a]))
@@ -118,7 +125,7 @@ export const getDrives = createServerFn({ method: 'GET' })
         avgWhPerMi,
       },
     }
-  })
+}
 
 export interface DriveRoute {
   /** Ordered [lat, lng] breadcrumb sampled by the poller during the drive. */
@@ -137,8 +144,8 @@ export interface DriveRoute {
 export const getDriveRoute = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(z.object({ driveId: z.number().int().positive() }))
-  .handler(async ({ data, context }): Promise<DriveRoute> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<DriveRoute> =>
+    withDb(async (db) => {
     const userId = context.userId
 
     const rows = await db
@@ -174,4 +181,4 @@ export const getDriveRoute = createServerFn({ method: 'GET' })
     if (drive.start_lat != null && drive.start_lng != null) ends.push([drive.start_lat, drive.start_lng])
     if (drive.end_lat != null && drive.end_lng != null) ends.push([drive.end_lat, drive.end_lng])
     return { points: ends, sampled: false }
-  })
+  }))

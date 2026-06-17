@@ -6,7 +6,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb, type Db } from '../server/db'
 import { driveSession } from '../server/schema'
 import { bucketMileage, type MileageBucket, type MileagePeriod } from '../lib/analytics-vm'
 
@@ -14,6 +14,7 @@ const input = z.object({
   vin: z.string().optional(),
   period: z.enum(['day', 'week', 'month', 'year']).default('month'),
 })
+export type MileageInput = z.infer<typeof input>
 
 export interface MileageResult {
   period: MileagePeriod
@@ -25,8 +26,15 @@ export interface MileageResult {
 export const getMileage = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(input)
-  .handler(async ({ data, context }): Promise<MileageResult> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<MileageResult> =>
+    withDb((db) => getMileageCore(db, context.userId, data)),
+  )
+
+export async function getMileageCore(
+  db: Db,
+  userId: string,
+  data: MileageInput,
+): Promise<MileageResult> {
     const rows = await db
       .select({
         started_at: driveSession.started_at,
@@ -36,7 +44,7 @@ export const getMileage = createServerFn({ method: 'GET' })
       .from(driveSession)
       .where(
         and(
-          eq(driveSession.user_id, context.userId),
+          eq(driveSession.user_id, userId),
           data.vin ? eq(driveSession.vin, data.vin) : undefined,
         ),
       )
@@ -47,4 +55,4 @@ export const getMileage = createServerFn({ method: 'GET' })
     const currentOdometerMi =
       [...rows].reverse().find((r) => r.end_odometer != null)?.end_odometer ?? null
     return { period: data.period, buckets, totalMi, currentOdometerMi }
-  })
+}

@@ -2,6 +2,7 @@
  *  no new reading, so the number can legitimately be hours old. */
 import type { DepartureReadiness, Staleness } from '../functions/readiness.functions'
 import { dateTime, miles, relativeTime } from './Stat'
+import { useDisplayTz } from '../lib/use-hydrated'
 
 const STALE_COLOR: Record<Staleness, string> = {
   fresh: 'var(--lagoon-deep)',
@@ -25,6 +26,7 @@ function recommendationText(r: DepartureReadiness): { text: string; tone: 'good'
 }
 
 export function ReadinessCard({ r }: { r: DepartureReadiness }) {
+  const tz = useDisplayTz()
   if (r.as_of == null) {
     return (
       <article className="island-shell rounded-2xl p-5">
@@ -52,7 +54,7 @@ export function ReadinessCard({ r }: { r: DepartureReadiness }) {
         <span
           className="text-xs font-semibold"
           style={{ color: STALE_COLOR[r.staleness] }}
-          title={`As of ${dateTime(r.as_of)}`}
+          title={`As of ${dateTime(r.as_of, tz)}`}
         >
           Updated {relativeTime(r.as_of)}
         </span>

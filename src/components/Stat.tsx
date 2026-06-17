@@ -36,11 +36,16 @@ export function kwh(n: number | null | undefined): string {
   return n == null ? '—' : `${(Math.round(n * 100) / 100).toLocaleString()} kWh`
 }
 
-export function dateTime(iso: string | null | undefined): string {
+/**
+ * `tz` is undefined for the runtime's local zone, or 'UTC' during SSR / first
+ * client render so server and client agree (avoids hydration mismatch — see
+ * useDisplayTz). Callers in SSR'd components must pass useDisplayTz().
+ */
+export function dateTime(iso: string | null | undefined, tz?: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString()
+  return d.toLocaleString('en-US', { timeZone: tz })
 }
 
 /** Coarse relative time ("just now" / "5m ago" / "3h ago" / "2d ago"). */

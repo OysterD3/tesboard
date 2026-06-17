@@ -7,7 +7,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq, gt, gte, isNotNull, lte } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
-import { getDb } from '../server/db'
+import { withDb } from '../server/db'
 import { vinFilter } from './vin'
 import { haversineMeters } from '../server/geo'
 import { chargeSession, electricityRate, vehicleSnapshot } from '../server/schema'
@@ -57,8 +57,8 @@ interface Acc {
 export const getChargingLocations = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator(vinFilter)
-  .handler(async ({ data, context }): Promise<ChargingLocationsPayload> => {
-    const db = getDb()
+  .handler(async ({ data, context }): Promise<ChargingLocationsPayload> =>
+    withDb(async (db) => {
     const userId = context.userId
     const vin = data?.vin
 
@@ -218,7 +218,7 @@ export const getChargingLocations = createServerFn({ method: 'GET' })
 
     locations.sort((a, b) => b.visitCount - a.visitCount || b.totalEnergyKwh - a.totalEnergyKwh)
     return { locations }
-  })
+  }))
 
 function labelFor(g: Acc, homeKey: string | null): string {
   if (g.key === 'sc:unknown') return 'Supercharger (unknown site)'

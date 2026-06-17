@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { getChargingLocations } from '../../functions/locations.functions'
 import { EmptyState, StatCard, dateTime, kwh, money } from '../../components/Stat'
+import { useDisplayTz } from '../../lib/use-hydrated'
 import { kw } from '../../lib/charge-location'
 
 export const Route = createFileRoute('/dashboard/locations')({
@@ -11,6 +12,7 @@ export const Route = createFileRoute('/dashboard/locations')({
 
 function LocationsPage() {
   const { locations } = Route.useLoaderData()
+  const tz = useDisplayTz()
   const totalEnergy = locations.reduce((s, l) => s + l.totalEnergyKwh, 0)
   const mostVisited = locations[0] ?? null
 
@@ -57,7 +59,7 @@ function LocationsPage() {
                     <Td>{kwh(l.avgEnergyKwh)}</Td>
                     <Td>{kw(l.avgChargeSpeedKw)}</Td>
                     <Td>{l.avgCostPerKwh != null ? money(l.avgCostPerKwh, l.currency) : '—'}</Td>
-                    <Td>{dateTime(l.lastChargedAt)}</Td>
+                    <Td>{dateTime(l.lastChargedAt, tz)}</Td>
                   </tr>
                 ))}
               </tbody>
