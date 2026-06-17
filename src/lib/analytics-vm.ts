@@ -125,6 +125,127 @@ export function bucketMileage(rows: MileageRow[], period: MileagePeriod): Mileag
   return [...map.values()].sort((a, b) => (a.period < b.period ? -1 : 1))
 }
 
+// ── Phantom / vampire standby loss ────────────────────────────────────────────
+
+/** A snapshot row reduced to what standby-loss detection needs. */
+export interface PhantomSnap {
+  est: number | null // est_battery_range (mi)
+  rng: number | null // battery_range (mi)
+  charging: string | null // charging_state
+  shift: string | null // shift_state
+  at: string // recorded_at ISO
+}
+export interface PhantomDay {
+  date: string // YYYY-MM-DD (UTC)
+  lostMi: number
+}
+export interface PhantomDrainResult {
+  hasData: boolean
+  lostMi: number
+  perDayMi: number
+  days: number
+  /** Per-UTC-day standby loss, chronological — drives the trend sparkline. */
+  series: PhantomDay[]
+}
+
+/**
+ * Standby (vampire) range loss from consecutive snapshots: range that drops
+ * between two readings where the car is parked (no/Park shift) and not charging
+ * is standby loss. Single-step drops larger than `maxIntervalDropMi` are treated
+ * as data gaps / noise, not standby. Pure — the server fn queries the rows.
+ */
+export function buildPhantomDrain(snaps: PhantomSnap[], maxIntervalDropMi = 10): PhantomDrainResult {
+  const empty: PhantomDrainResult = { hasData: false, lostMi: 0, perDayMi: 0, days: 0, series: [] }
+  if (snaps.length < 2) return empty
+
+  const range = (s: PhantomSnap) => s.est ?? s.rng
+  const parkedUnplugged = (s: PhantomSnap) =>
+    (s.shift == null || s.shift === 'P') && s.charging !== 'Charging'
+
+  const perDay = new Map<string, number>()
+  let lostMi = 0
+  let firstMs: number | null = null
+  let lastMs = 0
+  for (let i = 1; i < snaps.length; i++) {
+    const a = snaps[i - 1]
+    const b = snaps[i]
+    const t = new Date(b.at).getTime()
+    if (firstMs == null) firstMs = new Date(a.at).getTime()
+    lastMs = t
+    const ra = range(a)
+    const rb = range(b)
+    if (ra == null || rb == null) continue
+    if (!parkedUnplugged(a) || !parkedUnplugged(b)) continue
+    const drop = ra - rb
+    if (drop > 0 && drop <= maxIntervalDropMi) {
+      lostMi += drop
+      const day = b.at.slice(0, 10) // ISO date (UTC) bucket
+      perDay.set(day, (perDay.get(day) ?? 0) + drop)
+    }
+  }
+
+  if (lostMi <= 0 || firstMs == null) return empty
+  const spanDays = Math.max(1, (lastMs - firstMs) / 86_400_000)
+  const round1 = (n: number) => Math.round(n * 10) / 10
+  const series = [...perDay.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([date, mi]) => ({ date, lostMi: round1(mi) }))
+  return {
+    hasData: true,
+    lostMi: round1(lostMi),
+    perDayMi: round1(lostMi / spanDays),
+    days: Math.round(spanDays),
+    series,
+  }
+}
+
+// ── Charging energy / measured AC loss ────────────────────────────────────────
+
+/** A charge snapshot reduced to grid-power integration inputs. */
+export interface ChargePowerSample {
+  at: string // recorded_at ISO
+  voltage: number | null // charger_voltage (V)
+  current: number | null // charger_actual_current (A)
+  phases: number | null // charger_phases
+}
+
+/**
+ * Grid-side energy (kWh) drawn over an AC charge, trapezoid-integrating the
+ * instantaneous apparent power P = V × A × phases across the snapshot timeline.
+ * Returns null when fewer than two samples carry valid V/A/phases. This is an
+ * approximation at the 2-min poll cadence (and Tesla's `charger_phases` is a
+ * known-quirky field), so callers should clamp the derived loss to a sane band.
+ */
+export function integrateGridEnergyKwh(samples: ChargePowerSample[]): number | null {
+  const pts = samples
+    .filter((s) => s.voltage != null && s.current != null && s.phases != null && s.phases > 0)
+    .map((s) => ({ t: new Date(s.at).getTime(), w: s.voltage! * s.current! * s.phases! }))
+    .filter((p) => Number.isFinite(p.t) && p.w >= 0)
+    .sort((a, b) => a.t - b.t)
+  if (pts.length < 2) return null
+  let wh = 0
+  for (let i = 1; i < pts.length; i++) {
+    const dtH = (pts[i].t - pts[i - 1].t) / 3_600_000
+    if (dtH <= 0) continue
+    wh += ((pts[i].w + pts[i - 1].w) / 2) * dtH
+  }
+  return wh / 1000
+}
+
+/**
+ * Measured charge loss %: how much more energy was drawn from the source than
+ * landed in the battery — (grid − battery) / grid. Returns null outside a
+ * believable [0, 40]% band so a bad sample (or the phases quirk) never shows a
+ * nonsense figure.
+ */
+export function measuredLossPct(gridKwh: number | null, batteryKwh: number | null): number | null {
+  if (gridKwh == null || batteryKwh == null) return null
+  if (!(gridKwh > 0) || !(batteryKwh > 0)) return null
+  const loss = ((gridKwh - batteryKwh) / gridKwh) * 100
+  if (loss < 0 || loss > 40) return null
+  return Math.round(loss * 10) / 10
+}
+
 export interface TimelineEvent {
   kind: 'drive' | 'charge' | 'state' | 'update'
   at: string

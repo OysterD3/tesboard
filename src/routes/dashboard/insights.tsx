@@ -101,18 +101,37 @@ function InsightsPage() {
 
       {/* Phantom miles (derived from snapshots) */}
       {vm.phantom ? (
-        <Card radius={22} style={{ padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Standby loss · phantom {distUnit(u)}</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-              <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>{fmtDist(u, vm.phantom.lostKm, 1)}</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: TD }}>{distUnit(u)} lost</span>
+        <Card radius={22} style={{ padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Standby loss · phantom {distUnit(u)}</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>{fmtDist(u, vm.phantom.lostKm, 1)}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: TD }}>{distUnit(u)} lost</span>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>Over {vm.phantom.days} days parked · ~{fmtDist(u, vm.phantom.perDayKm, 1)} {distUnit(u)}/day</span>
             </div>
-            <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>Over {vm.phantom.days} days parked · ~{fmtDist(u, vm.phantom.perDayKm, 1)} {distUnit(u)}/day</span>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(244,63,94,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+              <Icon d={ICON.sparkles} size={22} color="#f43f5e" />
+            </div>
           </div>
-          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(244,63,94,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
-            <Icon d={ICON.sparkles} size={22} color="#f43f5e" />
-          </div>
+          {vm.phantom.series.length >= 2 && (
+            <div style={{ marginTop: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 40 }}>
+                {(() => {
+                  const series = vm.phantom.series.slice(-30)
+                  const max = Math.max(...series, 0.1)
+                  return series.map((v, i) => (
+                    <div
+                      key={i}
+                      style={{ flex: 1, height: `${Math.max(6, (v / max) * 100)}%`, background: '#f43f5e', opacity: 0.55, borderRadius: 2 }}
+                    />
+                  ))
+                })()}
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 500, color: TD, marginTop: 7, display: 'block' }}>Daily loss · last {Math.min(30, vm.phantom.series.length)} days with drain</span>
+            </div>
+          )}
         </Card>
       ) : (
         <EmptyCard title="No standby loss measured yet" body="Phantom drain is derived from snapshots taken while parked and unplugged — it appears once enough have accumulated." />

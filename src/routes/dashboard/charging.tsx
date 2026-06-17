@@ -5,7 +5,7 @@ import { Card, ChargeCurve, EmptyCard, ListRow, RowDot, ViewTitle } from '../../
 import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, SECTION } from '../../components/dashboard/theme'
-import { buildSessions } from '../../lib/dashboard-vm'
+import { buildChargingReview, buildSessions } from '../../lib/dashboard-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
@@ -37,7 +37,9 @@ function ChargingPage() {
   const { charging } = dashApi.useLoaderData()
   const { theme } = useDash()
   const isDark = theme === 'dark'
-  const all = buildSessions(charging, useDisplayTz())
+  const tz = useDisplayTz()
+  const all = buildSessions(charging, tz)
+  const review = buildChargingReview(charging, tz)
   const months = monthOptions(all)
   const [month, setMonth] = useState('all')
   const visible = month === 'all' ? all : all.filter((s) => s.monthKey === month)
@@ -121,12 +123,74 @@ function ChargingPage() {
             <span style={{ fontSize: 12, fontWeight: 600, color: TX }}>{detail ? timeline(detail, sel.durMin) : '—'}</span>
           </div>
 
+          {detail && detail.measuredLossPct != null && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
+                AC loss (measured)
+                {detail.avgVoltage != null && detail.avgCurrent != null
+                  ? ` · ${detail.avgVoltage}V · ${detail.avgCurrent}A${detail.phases ? ` · ${detail.phases}φ` : ''}`
+                  : ''}
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: TX }}>
+                {detail.measuredLossPct}%{detail.gridEnergyKwh != null ? ` · ${detail.gridEnergyKwh} kWh grid` : ''}
+              </span>
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginTop: 14 }}>
             <SessionStat value={sel.addedKwh != null ? `+${sel.addedKwh}` : '—'} label="Added" color={TX} />
             <SessionStat value={`${sel.durMin}m`} label="Minutes" color={TX} />
             <SessionStat value={money(sel.cost, sel.currency)} label="Cost" color={TX} />
             <SessionStat value={detail ? `${minAbove80}m` : '—'} label="> 80%" color={wastedColor} />
           </div>
+        </Card>
+      )}
+
+      {review.hasData && (
+        <Card radius={22} style={{ padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Year in review · {review.periodLabel}</span>
+            {review.busiestMonth && (
+              <span style={{ fontSize: 11, fontWeight: 600, color: COLOR, padding: '5px 11px', borderRadius: 30, background: hexToRgba(COLOR, isDark ? 0.18 : 0.1), whiteSpace: 'nowrap' }}>
+                Busiest · {review.busiestMonth}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, margin: '14px 0 4px' }}>
+            <SessionStat value={String(review.sessions)} label="Sessions" color={TX} />
+            <SessionStat value={`${review.energyKwh}`} label="kWh added" color={TX} />
+            <SessionStat value={money(review.cost, review.currency)} label="Spent" color={TX} />
+          </div>
+
+          {review.homeEnergyPct != null && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', height: 10, borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.round(review.homeEnergyPct * 100)}%`, background: '#10b981' }} />
+                <div style={{ width: `${100 - Math.round(review.homeEnergyPct * 100)}%`, background: '#f59e0b' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 9 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>Home {Math.round(review.homeEnergyPct * 100)}% of kWh</span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>Supercharge {100 - Math.round(review.homeEnergyPct * 100)}%</span>
+              </div>
+            </div>
+          )}
+
+          {review.topLocations.length > 0 && (
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: TD }}>Top places</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 11 }}>
+                {review.topLocations.map((l, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: TD, width: 14, flex: 'none' }}>{i + 1}</span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</span>
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: TD, flex: 'none' }}>{l.sessions}× · {l.energyKwh} kWh</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Card>
       )}
 

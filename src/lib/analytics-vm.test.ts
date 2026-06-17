@@ -3,10 +3,14 @@ import {
   binConsumptionByTemp,
   bucketMileage,
   buildBatteryHealth,
+  buildPhantomDrain,
   capacityKwh,
+  integrateGridEnergyKwh,
+  measuredLossPct,
   mergeTimeline,
   periodKey,
   projectedRangeMi,
+  type PhantomSnap,
 } from './analytics-vm'
 
 describe('capacityKwh', () => {
@@ -88,5 +92,57 @@ describe('mergeTimeline', () => {
       { kind: 'state', at: '2025-02-01T00:00:00Z', title: 'c' },
     ])
     expect(out.map((e) => e.title)).toEqual(['b', 'c', 'a'])
+  })
+})
+
+describe('buildPhantomDrain', () => {
+  const park = (at: string, mi: number): PhantomSnap => ({ est: mi, rng: mi, charging: null, shift: 'P', at })
+
+  it('sums parked+unplugged range drops and buckets them per UTC day', () => {
+    const r = buildPhantomDrain([
+      park('2026-06-01T00:00:00Z', 200),
+      park('2026-06-01T12:00:00Z', 198), // -2 on day 1
+      park('2026-06-02T00:00:00Z', 195), // -3 on day 2
+    ])
+    expect(r.hasData).toBe(true)
+    expect(r.lostMi).toBeCloseTo(5, 6)
+    expect(r.series).toEqual([
+      { date: '2026-06-01', lostMi: 2 },
+      { date: '2026-06-02', lostMi: 3 },
+    ])
+  })
+
+  it('ignores charging, driving, and gap-sized jumps', () => {
+    const r = buildPhantomDrain([
+      park('2026-06-01T00:00:00Z', 200),
+      { est: 230, rng: 230, charging: 'Charging', shift: null, at: '2026-06-01T01:00:00Z' }, // charging gain — skip
+      { est: 100, rng: 100, charging: null, shift: 'D', at: '2026-06-01T02:00:00Z' }, // driving — skip
+      park('2026-06-01T03:00:00Z', 80), // prev was driving → pair skipped
+      park('2026-06-01T04:00:00Z', 200), // +120 jump (gap) → not a drop
+    ])
+    expect(r.lostMi).toBe(0)
+    expect(r.hasData).toBe(false)
+  })
+})
+
+describe('integrateGridEnergyKwh / measuredLossPct', () => {
+  it('trapezoid-integrates V×A×phases over time into kWh', () => {
+    // 240V × 30A × 1φ = 7200W held for 1h = 7.2 kWh.
+    const kwh = integrateGridEnergyKwh([
+      { at: '2026-06-01T00:00:00Z', voltage: 240, current: 30, phases: 1 },
+      { at: '2026-06-01T01:00:00Z', voltage: 240, current: 30, phases: 1 },
+    ])
+    expect(kwh).toBeCloseTo(7.2, 6)
+  })
+
+  it('returns null without two valid V/A/phases samples', () => {
+    expect(integrateGridEnergyKwh([{ at: '2026-06-01T00:00:00Z', voltage: 240, current: null, phases: 1 }])).toBeNull()
+  })
+
+  it('computes loss only inside a believable band', () => {
+    expect(measuredLossPct(10, 9)).toBeCloseTo(10, 6) // 10% loss
+    expect(measuredLossPct(10, 11)).toBeNull() // negative loss → rejected
+    expect(measuredLossPct(10, 5)).toBeNull() // 50% → implausible, rejected
+    expect(measuredLossPct(null, 9)).toBeNull()
   })
 })

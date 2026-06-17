@@ -10,6 +10,7 @@ import { withDb, type Db } from '../server/db'
 import { vinFilter, type VinFilter } from './vin'
 import { address, chargeSession, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
+import { integrateGridEnergyKwh, measuredLossPct } from '../lib/analytics-vm'
 import type { ChargeSession } from '../types/db'
 
 /** A charge row augmented with a resolved place name (geofence > address > stored name). */
@@ -155,6 +156,14 @@ export interface ChargeDetail {
   hit100: number | null
   /** Minutes spent at ≥80% while still plugged in. */
   minAbove80: number
+  /** Mean charger voltage / current over the session, and the phase count (mode). */
+  avgVoltage: number | null
+  avgCurrent: number | null
+  phases: number | null
+  /** Grid-side energy drawn (kWh), integrated from V×A×phases. AC sessions only. */
+  gridEnergyKwh: number | null
+  /** Measured AC charge loss % = (grid − battery) / grid; null unless believable. */
+  measuredLossPct: number | null
 }
 
 /**
@@ -169,7 +178,7 @@ export const getChargeDetail = createServerFn({ method: 'GET' })
   .handler(async ({ data, context }): Promise<ChargeDetail> =>
     withDb(async (db) => {
     const userId = context.userId
-    const empty: ChargeDetail = { hasData: false, curve: [], taperFrac: null, peakKw: null, soc0: null, soc1: null, hit80: null, hit100: null, minAbove80: 0 }
+    const empty: ChargeDetail = { hasData: false, curve: [], taperFrac: null, peakKw: null, soc0: null, soc1: null, hit80: null, hit100: null, minAbove80: 0, avgVoltage: null, avgCurrent: null, phases: null, gridEnergyKwh: null, measuredLossPct: null }
 
     const rows = await db
       .select()
@@ -184,6 +193,9 @@ export const getChargeDetail = createServerFn({ method: 'GET' })
         power: vehicleSnapshot.charger_power,
         soc: vehicleSnapshot.battery_level,
         at: vehicleSnapshot.recorded_at,
+        voltage: vehicleSnapshot.charger_voltage,
+        current: vehicleSnapshot.charger_actual_current,
+        phases: vehicleSnapshot.charger_phases,
       })
       .from(vehicleSnapshot)
       .where(
@@ -223,6 +235,23 @@ export const getChargeDetail = createServerFn({ method: 'GET' })
     // those single-sample impulses while preserving real edges (peaks + genuine tapers).
     const curve = downsample(medianSmooth(powers, 5), 80)
 
+    // ── voltage / current / phases + measured AC loss ──
+    // Grid-side energy from V×A×phases vs energy that reached the battery. Only
+    // meaningful for AC charging — a Supercharger's V/A is DC pack-side, so we
+    // skip the loss there (it would read ~0 and mislead).
+    const volts = snaps.map((s) => s.voltage).filter((v): v is number => v != null && v > 0)
+    const amps = snaps.map((s) => s.current).filter((a): a is number => a != null && a > 0)
+    const phaseVals = snaps.map((s) => s.phases).filter((p): p is number => p != null && p > 0)
+    const avgVoltage = volts.length ? round(volts.reduce((a, b) => a + b, 0) / volts.length) : null
+    const avgCurrent = amps.length ? round(amps.reduce((a, b) => a + b, 0) / amps.length) : null
+    const phases = phaseVals.length ? mode(phaseVals) : null
+
+    const isAc = session.source !== 'supercharger'
+    const gridEnergyKwh = isAc
+      ? integrateGridEnergyKwh(snaps.map((s) => ({ at: s.at, voltage: s.voltage, current: s.current, phases: s.phases })))
+      : null
+    const lossPct = isAc ? measuredLossPct(gridEnergyKwh, session.energy_added_kwh ?? null) : null
+
     return {
       hasData: powers.length > 0 || socs.length > 0,
       curve,
@@ -233,8 +262,28 @@ export const getChargeDetail = createServerFn({ method: 'GET' })
       hit80,
       hit100,
       minAbove80,
+      avgVoltage,
+      avgCurrent,
+      phases,
+      gridEnergyKwh: gridEnergyKwh != null ? round(gridEnergyKwh, 2) : null,
+      measuredLossPct: lossPct,
     }
   }))
+
+/** Most-frequent value in a non-empty list (ties → smallest). */
+function mode(xs: number[]): number {
+  const counts = new Map<number, number>()
+  for (const x of xs) counts.set(x, (counts.get(x) ?? 0) + 1)
+  let best = xs[0]
+  let bestN = 0
+  for (const [v, n] of counts) {
+    if (n > bestN || (n === bestN && v < best)) {
+      best = v
+      bestN = n
+    }
+  }
+  return best
+}
 
 /** Evenly sample down to at most `max` points so the chart path stays light. */
 function downsample(arr: number[], max: number): number[] {

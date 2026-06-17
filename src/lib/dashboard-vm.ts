@@ -274,7 +274,7 @@ export interface InsightsVM {
   mostEffWhKm: number | null
   odoKm: number | null
   lifetimeDistKm: number | null
-  phantom: { lostKm: number; perDayKm: number; days: number } | null
+  phantom: { lostKm: number; perDayKm: number; days: number; series: number[] } | null
 }
 
 export function buildInsights(
@@ -304,7 +304,12 @@ export function buildInsights(
     odoKm: overviewKmOdo,
     lifetimeDistKm: hasDrives ? round(miToKm(drives.stats.totalMiles)) : null,
     phantom: phantom.hasData
-      ? { lostKm: round(miToKm(phantom.lostMi), 1), perDayKm: round(miToKm(phantom.perDayMi), 1), days: phantom.days }
+      ? {
+          lostKm: round(miToKm(phantom.lostMi), 1),
+          perDayKm: round(miToKm(phantom.perDayMi), 1),
+          days: phantom.days,
+          series: phantom.series.map((d) => round(miToKm(d.lostMi), 1)),
+        }
       : null,
   }
 }
@@ -319,4 +324,108 @@ function estimateMonthly(charging: ChargingPayload): number {
 function distinctDays(drives: DrivesPayload): number {
   const days = new Set(drives.drives.map((d) => new Date(d.started_at).toDateString()))
   return days.size
+}
+
+// ── Charging year-in-review ────────────────────────────────────────────────────
+
+export interface ReviewLocation {
+  name: string
+  sessions: number
+  energyKwh: number
+}
+export interface ChargingReviewVM {
+  hasData: boolean
+  /** Window label, e.g. "Last 12 months". */
+  periodLabel: string
+  sessions: number
+  energyKwh: number
+  cost: number
+  currency: string
+  /** Share of energy added at home/AC (0–1), null when no cost/energy split. */
+  homeEnergyPct: number | null
+  topLocations: ReviewLocation[]
+  /** "Mon YYYY" of the month with the most sessions, or null. */
+  busiestMonth: string | null
+}
+
+/**
+ * A "wrapped"-style charging summary over the trailing 12 months, derived purely
+ * from the already-loaded charging payload (no extra query). Totals, the home/SC
+ * energy split, the top charging places, and the busiest month. The 12-month
+ * window is anchored on the most recent session (not the wall clock) so the SSR
+ * and client renders agree — see the hydration note at the top of this module.
+ */
+export function buildChargingReview(charging: ChargingPayload, tz?: string): ChargingReviewVM {
+  const times = charging.sessions
+    .map((s) => new Date(s.started_at).getTime())
+    .filter((t) => !Number.isNaN(t))
+  const anchor = times.length ? Math.max(...times) : 0
+  const since = anchor - 365 * 86_400_000
+  const inWindow = charging.sessions.filter((s) => {
+    const t = new Date(s.started_at).getTime()
+    return !Number.isNaN(t) && t >= since
+  })
+
+  const base: ChargingReviewVM = {
+    hasData: false,
+    periodLabel: 'Last 12 months',
+    sessions: 0,
+    energyKwh: 0,
+    cost: 0,
+    currency: charging.stats.currency ?? 'USD',
+    homeEnergyPct: null,
+    topLocations: [],
+    busiestMonth: null,
+  }
+  if (inWindow.length === 0) return base
+
+  let energyKwh = 0
+  let homeEnergy = 0
+  let totalEnergyForSplit = 0
+  let cost = 0
+  let currency = base.currency
+  const byLoc = new Map<string, { sessions: number; energyKwh: number }>()
+  const byMonth = new Map<string, number>()
+
+  for (const s of inWindow) {
+    const e = s.energy_added_kwh ?? 0
+    energyKwh += e
+    cost += s.cost_amount ?? 0
+    if (s.cost_currency) currency = s.cost_currency
+    if (e > 0) {
+      totalEnergyForSplit += e
+      if (s.source !== 'supercharger') homeEnergy += e
+    }
+    const name = s.locationName ?? s.location_name ?? (s.source === 'supercharger' ? 'Supercharger' : 'Charge session')
+    const loc = byLoc.get(name) ?? { sessions: 0, energyKwh: 0 }
+    loc.sessions += 1
+    loc.energyKwh += e
+    byLoc.set(name, loc)
+    const mk = monthLabel(s.started_at, tz)
+    byMonth.set(mk, (byMonth.get(mk) ?? 0) + 1)
+  }
+
+  const topLocations = [...byLoc.entries()]
+    .map(([name, v]) => ({ name, sessions: v.sessions, energyKwh: round(v.energyKwh, 1) }))
+    .sort((a, b) => b.sessions - a.sessions || b.energyKwh - a.energyKwh)
+    .slice(0, 3)
+  const busiestMonth =
+    [...byMonth.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? 1 : -1))[0]?.[0] ?? null
+
+  return {
+    hasData: true,
+    periodLabel: 'Last 12 months',
+    sessions: inWindow.length,
+    energyKwh: round(energyKwh, 1),
+    cost: round(cost),
+    currency,
+    homeEnergyPct: totalEnergyForSplit > 0 ? homeEnergy / totalEnergyForSplit : null,
+    topLocations,
+    busiestMonth,
+  }
+}
+
+/** "Mon YYYY" label for a timestamp in zone `tz` (UTC during SSR). */
+function monthLabel(iso: string, tz?: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: tz })
 }

@@ -11,6 +11,7 @@ import { authMiddleware } from '../server/auth-middleware'
 import { withDb, type Db } from '../server/db'
 import { vinFilter, type VinFilter } from './vin'
 import { vehicleSnapshot } from '../server/schema'
+import { buildPhantomDrain, type PhantomDay, type PhantomSnap } from '../lib/analytics-vm'
 
 export interface PhantomDrain {
   hasData: boolean
@@ -20,9 +21,11 @@ export interface PhantomDrain {
   perDayMi: number
   /** Days the window spans. */
   days: number
+  /** Per-UTC-day standby loss (chronological) — drives the trend sparkline. */
+  series: PhantomDay[]
 }
 
-const WINDOW_DAYS = 7
+const WINDOW_DAYS = 30
 const MAX_INTERVAL_DROP_MI = 10 // larger single-step drops are noise/data gaps, not standby
 
 export const getPhantomDrain = createServerFn({ method: 'GET' })
@@ -58,36 +61,5 @@ export async function getPhantomDrainCore(
       )
       .orderBy(asc(vehicleSnapshot.recorded_at))
 
-    const empty: PhantomDrain = { hasData: false, lostMi: 0, perDayMi: 0, days: WINDOW_DAYS }
-    if (snaps.length < 2) return empty
-
-    const range = (s: (typeof snaps)[number]) => s.est ?? s.rng
-    const parkedUnplugged = (s: (typeof snaps)[number]) =>
-      (s.shift == null || s.shift === 'P') && s.charging !== 'Charging'
-
-    let lostMi = 0
-    let firstMs: number | null = null
-    let lastMs = 0
-    for (let i = 1; i < snaps.length; i++) {
-      const a = snaps[i - 1]
-      const b = snaps[i]
-      const ra = range(a)
-      const rb = range(b)
-      const t = new Date(b.at).getTime()
-      if (firstMs == null) firstMs = new Date(a.at).getTime()
-      lastMs = t
-      if (ra == null || rb == null) continue
-      if (!parkedUnplugged(a) || !parkedUnplugged(b)) continue
-      const drop = ra - rb
-      if (drop > 0 && drop <= MAX_INTERVAL_DROP_MI) lostMi += drop
-    }
-
-    if (lostMi <= 0 || firstMs == null) return empty
-    const spanDays = Math.max(1, (lastMs - firstMs) / 86_400_000)
-    return {
-      hasData: true,
-      lostMi: Math.round(lostMi * 10) / 10,
-      perDayMi: Math.round((lostMi / spanDays) * 10) / 10,
-      days: Math.round(spanDays),
-    }
+    return buildPhantomDrain(snaps as PhantomSnap[], MAX_INTERVAL_DROP_MI)
 }
