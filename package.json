@@ -15,6 +15,7 @@
     "user:create": "node scripts/create-user.mjs",
     "tesla:register": "node scripts/tesla-register.mjs",
     "import:teslamate": "node scripts/import-teslamate.mjs",
+    "import:tessie": "node scripts/import-tessie.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "test": "vitest run"
