@@ -181,6 +181,8 @@ export interface DriveVM {
   durMin: number
   avgKph: number
   kwh: number | null
+  /** Drive consumption in Wh/km (canonical); null when not computed. */
+  effWhKm: number | null
   /** Start/end coords the drive row carries (immediate line before the breadcrumb loads). */
   endpoints: [number, number][]
 }
@@ -213,6 +215,7 @@ export function buildDrives(payload: DrivesPayload, tz?: string): DriveVM[] {
       durMin,
       avgKph,
       kwh: d.energy_used_kwh != null ? round(d.energy_used_kwh, 1) : null,
+      effWhKm: d.wh_per_mi != null && d.wh_per_mi > 0 ? round(whPerMiToWhKm(d.wh_per_mi)) : null,
       endpoints,
     }
   })

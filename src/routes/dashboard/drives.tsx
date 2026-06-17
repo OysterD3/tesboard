@@ -12,7 +12,7 @@ import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter
 import { groupByMonth, monthOptions } from '../../lib/month-group'
 import { getDriveRoute } from '../../functions/drives.functions'
 import { backfillAddresses } from '../../functions/geocode.functions'
-import { distUnit, fmtDist, fmtSpeed, speedUnit } from '../../lib/units'
+import { distUnit, effFromWhKm, effSuffix, fmtDist, fmtSpeed, speedUnit } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives')({
   component: DrivesPage,
@@ -98,11 +98,12 @@ function DrivesPage() {
             </div>
           </div>
           {caption && <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>{caption}</div>}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginTop: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 16 }}>
             <StatCell value={`${fmtDist(u, sel.distKm, 1)} ${distUnit(u)}`} label="Distance" />
             <StatCell value={`${sel.durMin}m`} label="Duration" />
             <StatCell value={`${fmtSpeed(u, sel.avgKph)} ${speedUnit(u)}`} label="Avg speed" />
             <StatCell value={sel.kwh != null ? `${sel.kwh} kWh` : '—'} label="Energy" />
+            <StatCell value={sel.effWhKm != null ? String(effFromWhKm(u, sel.effWhKm)) : '—'} label={effSuffix(u)} />
           </div>
         </Card>
       )}
@@ -136,7 +137,9 @@ function DrivesPage() {
               right={
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flex: 'none', paddingLeft: 12 }}>
                   <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: TX }}>{fmtDist(u, d.distKm, 1)} {distUnit(u)}</span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{d.durMin} min</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
+                    {d.effWhKm != null ? `${effFromWhKm(u, d.effWhKm)} ${effSuffix(u)} · ` : ''}{d.durMin} min
+                  </span>
                 </div>
               }
             />
