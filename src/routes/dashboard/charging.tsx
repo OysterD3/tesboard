@@ -1,4 +1,4 @@
-import { createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { createFileRoute, getRouteApi, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { Card, ChargeCurve, EmptyCard, ListRow, RowDot, ViewTitle } from '../../components/dashboard/primitives'
@@ -9,7 +9,7 @@ import { buildChargingReview, buildSessions } from '../../lib/dashboard-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
-import { getChargeDetail, type ChargeDetail } from '../../functions/charging.functions'
+import { getChargeDetail, setChargeCost, type ChargeDetail } from '../../functions/charging.functions'
 
 export const Route = createFileRoute('/dashboard/charging')({
   component: ChargingPage,
@@ -50,8 +50,32 @@ function ChargingPage() {
   const fetchDetail = useServerFn(getChargeDetail)
   const [fetched, setFetched] = useState<FetchedDetail | null>(null)
 
+  const router = useRouter()
+  const saveCost = useServerFn(setChargeCost)
+  const [editingCost, setEditingCost] = useState(false)
+  const [costInput, setCostInput] = useState('')
+  const [savingCost, setSavingCost] = useState(false)
+
+  function openCostEditor() {
+    setCostInput(sel?.cost != null ? String(sel.cost) : '')
+    setEditingCost(true)
+  }
+
+  async function submitCost(value: number | null) {
+    if (!sel) return
+    setSavingCost(true)
+    try {
+      await saveCost({ data: { id: sel.sessionId, cost: value, currency: sel.currency } })
+      setEditingCost(false)
+      await router.invalidate()
+    } finally {
+      setSavingCost(false)
+    }
+  }
+
   useEffect(() => {
     if (!sel) return
+    setEditingCost(false)
     let cancelled = false
     fetchDetail({ data: { sessionId: sel.sessionId } })
       .then((d) => {
@@ -140,9 +164,64 @@ function ChargingPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginTop: 14 }}>
             <SessionStat value={sel.addedKwh != null ? `+${sel.addedKwh}` : '—'} label="Added" color={TX} />
             <SessionStat value={`${sel.durMin}m`} label="Minutes" color={TX} />
-            <SessionStat value={money(sel.cost, sel.currency)} label="Cost" color={TX} />
+            <button
+              type="button"
+              onClick={openCostEditor}
+              title="Edit cost"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            >
+              <SessionStat
+                value={money(sel.cost, sel.currency)}
+                label={sel.costSource === 'manual' ? 'Cost · edited' : 'Cost · tap'}
+                color={sel.costSource === 'manual' ? COLOR : TX}
+              />
+            </button>
             <SessionStat value={detail ? `${minAbove80}m` : '—'} label="> 80%" color={wastedColor} />
           </div>
+
+          {editingCost && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: TD }}>{sel.currency}</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={costInput}
+                onChange={(e) => setCostInput(e.target.value)}
+                autoFocus
+                placeholder="0.00"
+                style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: TX, background: 'var(--track,#f7f7f9)', border: '1px solid var(--border,rgba(0,0,0,0.1))', borderRadius: 10, padding: '8px 12px' }}
+              />
+              <button
+                type="button"
+                disabled={savingCost || costInput.trim() === '' || Number.isNaN(Number(costInput))}
+                onClick={() => submitCost(Number(costInput))}
+                style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: COLOR, border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', opacity: savingCost ? 0.6 : 1 }}
+              >
+                Save
+              </button>
+              {sel.costSource === 'manual' && (
+                <button
+                  type="button"
+                  disabled={savingCost}
+                  onClick={() => submitCost(null)}
+                  title="Revert to automatic costing"
+                  style={{ fontSize: 13, fontWeight: 600, color: TD, background: 'var(--track,#f7f7f9)', border: '1px solid var(--border,rgba(0,0,0,0.1))', borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}
+                >
+                  Auto
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={savingCost}
+                onClick={() => setEditingCost(false)}
+                style={{ fontSize: 13, fontWeight: 600, color: TD, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 4px' }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </Card>
       )}
 

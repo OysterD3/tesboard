@@ -10,8 +10,10 @@ import { buildDrives } from '../../lib/dashboard-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
-import { getDriveRoute } from '../../functions/drives.functions'
+import { getDriveRoute, getVisitedMap } from '../../functions/drives.functions'
+import { exportDriveGpx } from '../../functions/export.functions'
 import { backfillAddresses } from '../../functions/geocode.functions'
+import { downloadString } from '../../lib/download'
 import { distUnit, effFromWhKm, effSuffix, fmtDist, fmtSpeed, speedUnit } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives')({
@@ -26,7 +28,7 @@ const COLOR = SECTION.drives
 type Fetched = { id: string; points: [number, number][]; sampled: boolean }
 
 function DrivesPage() {
-  const { drives } = dashApi.useLoaderData()
+  const { drives, activeVin } = dashApi.useLoaderData()
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
   const all = buildDrives(drives, useDisplayTz())
@@ -39,6 +41,25 @@ function DrivesPage() {
 
   const fetchRoute = useServerFn(getDriveRoute)
   const [fetched, setFetched] = useState<Fetched | null>(null)
+
+  // Map mode: a single drive's breadcrumb, or the lifetime "visited" scatter.
+  const [mapView, setMapView] = useState<'drive' | 'lifetime'>('drive')
+  const fetchVisited = useServerFn(getVisitedMap)
+  const [visited, setVisited] = useState<{ points: [number, number][]; scanned: number } | null>(null)
+  const [visitedLoading, setVisitedLoading] = useState(false)
+
+  const fetchGpx = useServerFn(exportDriveGpx)
+  const [gpxBusy, setGpxBusy] = useState(false)
+  async function downloadGpx() {
+    if (!sel || gpxBusy) return
+    setGpxBusy(true)
+    try {
+      const f = await fetchGpx({ data: { driveId: sel.driveId } })
+      if (f.body) downloadString(f.filename, f.mime, f.body)
+    } finally {
+      setGpxBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!sel) return
@@ -54,6 +75,31 @@ function DrivesPage() {
       cancelled = true
     }
   }, [sel?.id, sel?.driveId, fetchRoute])
+
+  // Lazy-load the lifetime map the first time it's shown (refetch if the car changes).
+  useEffect(() => {
+    if (mapView !== 'lifetime' || visited) return
+    let cancelled = false
+    setVisitedLoading(true)
+    fetchVisited({ data: { vin: activeVin ?? undefined } })
+      .then((r) => {
+        if (!cancelled) setVisited(r)
+      })
+      .catch(() => {
+        if (!cancelled) setVisited({ points: [], scanned: 0 })
+      })
+      .finally(() => {
+        if (!cancelled) setVisitedLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [mapView, visited, fetchVisited, activeVin])
+
+  // A car switch invalidates a cached lifetime map.
+  useEffect(() => {
+    setVisited(null)
+  }, [activeVin])
 
   if (all.length === 0) {
     return (
@@ -83,29 +129,68 @@ function DrivesPage() {
         <ResolveLocationsButton isDark={isDark} />
       </div>
 
-      {sel && (
+      <MapToggle value={mapView} onChange={setMapView} isDark={isDark} />
+
+      {mapView === 'lifetime' ? (
         <Card radius={22} style={{ padding: 14 }}>
           <div style={{ position: 'relative' }}>
-            {points.length >= 1 ? (
-              <LeafletMap points={points} color={COLOR} isDark={isDark} />
+            {visited && visited.points.length > 0 ? (
+              <LeafletMap points={visited.points} color={COLOR} isDark={isDark} mode="scatter" height={260} />
             ) : (
-              <div style={{ height: 206, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
-                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>No GPS recorded for this drive.</span>
+              <div style={{ height: 260, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
+                  {visitedLoading ? 'Building lifetime map…' : 'No GPS points recorded yet.'}
+                </span>
               </div>
             )}
             <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 500, pointerEvents: 'none', fontSize: 11, fontWeight: 600, color: TX, background: 'var(--card,#fff)', padding: '6px 11px', borderRadius: 20, border: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
-              {sel.title}
+              Everywhere you’ve been
             </div>
           </div>
-          {caption && <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>{caption}</div>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 16 }}>
-            <StatCell value={`${fmtDist(u, sel.distKm, 1)} ${distUnit(u)}`} label="Distance" />
-            <StatCell value={`${sel.durMin}m`} label="Duration" />
-            <StatCell value={`${fmtSpeed(u, sel.avgKph)} ${speedUnit(u)}`} label="Avg speed" />
-            <StatCell value={sel.kwh != null ? `${sel.kwh} kWh` : '—'} label="Energy" />
-            <StatCell value={sel.effWhKm != null ? String(effFromWhKm(u, sel.effWhKm)) : '—'} label={effSuffix(u)} />
-          </div>
+          {visited && visited.points.length > 0 && (
+            <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
+              {visited.points.length.toLocaleString()} places · sampled at the poll cadence (not road-matched)
+            </div>
+          )}
         </Card>
+      ) : (
+        sel && (
+          <Card radius={22} style={{ padding: 14 }}>
+            <div style={{ position: 'relative' }}>
+              {points.length >= 1 ? (
+                <LeafletMap points={points} color={COLOR} isDark={isDark} />
+              ) : (
+                <div style={{ height: 206, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>No GPS recorded for this drive.</span>
+                </div>
+              )}
+              <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 500, pointerEvents: 'none', fontSize: 11, fontWeight: 600, color: TX, background: 'var(--card,#fff)', padding: '6px 11px', borderRadius: 20, border: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
+                {sel.title}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
+              {caption ? <span style={{ fontSize: 10, fontWeight: 500, color: TD, paddingLeft: 2 }}>{caption}</span> : <span />}
+              {points.length >= 1 && (
+                <button
+                  type="button"
+                  onClick={downloadGpx}
+                  disabled={gpxBusy}
+                  title="Download this drive as a GPX track"
+                  style={{ flex: 'none', fontSize: 11, fontWeight: 600, color: COLOR, background: 'none', border: `1px solid ${COLOR}`, borderRadius: 30, padding: '5px 12px', cursor: gpxBusy ? 'default' : 'pointer', opacity: gpxBusy ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                >
+                  {gpxBusy ? 'Exporting…' : 'Export GPX'}
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 16 }}>
+              <StatCell value={`${fmtDist(u, sel.distKm, 1)} ${distUnit(u)}`} label="Distance" />
+              <StatCell value={`${sel.durMin}m`} label="Duration" />
+              <StatCell value={`${fmtSpeed(u, sel.avgKph)} ${speedUnit(u)}`} label="Avg speed" />
+              <StatCell value={sel.kwh != null ? `${sel.kwh} kWh` : '—'} label="Energy" />
+              <StatCell value={sel.effWhKm != null ? String(effFromWhKm(u, sel.effWhKm)) : '—'} label={effSuffix(u)} />
+            </div>
+          </Card>
+        )
       )}
 
       <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
@@ -216,6 +301,48 @@ function ResolveLocationsButton({ isDark }: { isDark: boolean }) {
     >
       {label}
     </button>
+  )
+}
+
+function MapToggle({
+  value,
+  onChange,
+  isDark,
+}: {
+  value: 'drive' | 'lifetime'
+  onChange: (v: 'drive' | 'lifetime') => void
+  isDark: boolean
+}) {
+  const opts: { key: 'drive' | 'lifetime'; label: string }[] = [
+    { key: 'drive', label: 'This drive' },
+    { key: 'lifetime', label: 'Lifetime' },
+  ]
+  return (
+    <div style={{ display: 'flex', gap: 4, background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--track,#f0f0f3)', borderRadius: 30, padding: 4, alignSelf: 'flex-start' }}>
+      {opts.map((o) => {
+        const active = o.key === value
+        return (
+          <button
+            key={o.key}
+            type="button"
+            onClick={() => onChange(o.key)}
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              letterSpacing: '-0.01em',
+              color: active ? '#fff' : TD,
+              background: active ? COLOR : 'transparent',
+              border: 'none',
+              borderRadius: 30,
+              padding: '6px 14px',
+              cursor: 'pointer',
+            }}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 

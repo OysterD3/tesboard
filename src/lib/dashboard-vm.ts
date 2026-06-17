@@ -237,6 +237,8 @@ export interface SessionVM {
   durMin: number
   cost: number | null
   currency: string
+  /** Provenance of `cost`: computed | tesla_billed | tesla_billed_free | geofence | imported_teslamate | manual. */
+  costSource: string
 }
 
 export function buildSessions(payload: ChargingPayload, tz?: string): SessionVM[] {
@@ -258,6 +260,7 @@ export function buildSessions(payload: ChargingPayload, tz?: string): SessionVM[
       durMin,
       cost: s.cost_amount ?? null,
       currency: s.cost_currency ?? 'USD',
+      costSource: s.cost_source ?? 'computed',
     }
   })
 }

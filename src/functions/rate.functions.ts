@@ -11,7 +11,7 @@ import { authMiddleware } from '../server/auth-middleware'
 import { withDb, type Db } from '../server/db'
 import { vinFilter } from './vin'
 import { classifyChargeLocation, findGeofence } from '../server/geo'
-import { computeChargeCost } from '../server/cost'
+import { computeChargeCost, parseTouSchedule } from '../server/cost'
 import { sumChargeEnergyAdded } from '../lib/analytics-vm'
 import { chargeSession, electricityRate, geofence, vehicle, vehicleSnapshot } from '../server/schema'
 import type { ChargeSession, ElectricityRate, Geofence } from '../types/db'
@@ -40,6 +40,24 @@ const rateInput = z
     homeLng: z.number().min(-180).max(180).nullable().optional(),
     homeRadiusM: z.number().positive().max(5000).nullable().optional(),
     departureTargetSoc: z.number().int().min(0).max(100).nullable().optional(),
+    touSchedule: z
+      .object({
+        bands: z
+          .array(
+            z.object({
+              name: z.string().max(40).default('Band'),
+              rate: z.number().nonnegative(),
+              startMin: z.number().int().min(0).max(1440),
+              endMin: z.number().int().min(0).max(1440),
+              days: z.array(z.number().int().min(0).max(6)).optional(),
+            }),
+          )
+          .max(12),
+        defaultRate: z.number().nonnegative().nullable(),
+        utcOffsetMin: z.number().int().min(-840).max(840).default(0),
+      })
+      .nullable()
+      .optional(),
   })
   .refine((d) => (d.homeLat == null) === (d.homeLng == null), {
     message: 'home latitude and longitude must be provided together',
@@ -50,12 +68,16 @@ export const saveRate = createServerFn({ method: 'POST' })
   .validator(rateInput)
   .handler(async ({ data, context }): Promise<ElectricityRate> =>
     withDb(async (db) => {
+    // A schedule with at least one band switches the rate kind to time-of-use;
+    // flat_rate is still stored as the fallback for unmatched minutes/sessions.
+    const tou = data.touSchedule && data.touSchedule.bands.length > 0 ? data.touSchedule : null
     const values = {
       user_id: context.userId,
-      kind: 'flat',
+      kind: tou ? 'tou' : 'flat',
       currency: data.currency,
       flat_rate: data.flatRate,
       loss_factor: data.lossFactor,
+      tou_schedule: tou,
       home_lat: data.homeLat ?? null,
       home_lng: data.homeLng ?? null,
       home_radius_m: data.homeLat == null ? null : (data.homeRadiusM ?? 150),
@@ -72,6 +94,7 @@ export const saveRate = createServerFn({ method: 'POST' })
           currency: values.currency,
           flat_rate: values.flat_rate,
           loss_factor: values.loss_factor,
+          tou_schedule: values.tou_schedule,
           home_lat: values.home_lat,
           home_lng: values.home_lng,
           home_radius_m: values.home_radius_m,
@@ -156,7 +179,7 @@ export const reclassifyCharges = createServerFn({ method: 'POST' })
       .where(and(eq(chargeSession.user_id, userId), isNotNull(chargeSession.ended_at)))) as ChargeSession[]
 
     // Authoritative / imported costs are never rewritten.
-    const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate'])
+    const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate', 'manual'])
 
     let reclassified = 0
     let recosted = 0
@@ -202,9 +225,16 @@ export const reclassifyCharges = createServerFn({ method: 'POST' })
               }
             : null,
           homeRate: rate
-            ? { flat_rate: rate.flat_rate, loss_factor: rate.loss_factor, currency: rate.currency }
+            ? {
+                flat_rate: rate.flat_rate,
+                loss_factor: rate.loss_factor,
+                currency: rate.currency,
+                tou: parseTouSchedule(rate.tou_schedule),
+              }
             : null,
           isHome: type === 'home',
+          startedAt: s.started_at,
+          endedAt: s.ended_at,
         })
         if (
           s.cost_amount !== costR.cost_amount ||
@@ -263,7 +293,7 @@ export const repairChargeEnergy = createServerFn({ method: 'POST' })
         .select()
         .from(chargeSession)
         .where(and(eq(chargeSession.user_id, userId), isNotNull(chargeSession.ended_at)))) as ChargeSession[]
-      const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate'])
+      const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate', 'manual'])
 
       let scanned = 0
       let repaired = 0
@@ -324,9 +354,16 @@ export const repairChargeEnergy = createServerFn({ method: 'POST' })
               }
             : null,
           homeRate: rate
-            ? { flat_rate: rate.flat_rate, loss_factor: rate.loss_factor, currency: rate.currency }
+            ? {
+                flat_rate: rate.flat_rate,
+                loss_factor: rate.loss_factor,
+                currency: rate.currency,
+                tou: parseTouSchedule(rate.tou_schedule),
+              }
             : null,
           isHome: type === 'home',
+          startedAt: s.started_at,
+          endedAt: s.ended_at,
         })
 
         await db

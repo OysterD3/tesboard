@@ -34,7 +34,7 @@ import type { AnomalyCandidate } from './anomaly'
 import { detectEfficiencyDrop, detectSlowCharge } from './anomaly'
 import { classifyChargeLocation, findGeofence } from './geo'
 import { cachedAddressNear, findOrCreateAddress } from './geocode'
-import { computeChargeCost } from './cost'
+import { computeChargeCost, parseTouSchedule } from './cost'
 import { recalculateEfficiency } from './efficiency'
 import { sumChargeEnergyAdded } from '../lib/analytics-vm'
 import type { ElectricityRate, Geofence, Json } from '../types/db'
@@ -372,9 +372,16 @@ async function closeChargeSession(
         }
       : null,
     homeRate: rate
-      ? { flat_rate: rate.flat_rate, loss_factor: rate.loss_factor, currency: rate.currency }
+      ? {
+          flat_rate: rate.flat_rate,
+          loss_factor: rate.loss_factor,
+          currency: rate.currency,
+          tou: parseTouSchedule(rate.tou_schedule),
+        }
       : null,
     isHome: treatAsHome,
+    startedAt: open.started_at,
+    endedAt,
   })
 
   try {

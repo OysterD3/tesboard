@@ -11,6 +11,9 @@ import { Card, Segmented, ViewTitle } from '../../components/dashboard/primitive
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ACCENT_PALETTE } from '../../components/dashboard/theme'
 import { getSupabaseBrowser } from '../../lib/supabase-browser'
+import { exportData } from '../../functions/export.functions'
+import { getDbInfo, type DbInfo } from '../../functions/diagnostics.functions'
+import { downloadString } from '../../lib/download'
 import type { ElectricityRate } from '../../types/db'
 
 export const Route = createFileRoute('/dashboard/settings')({
@@ -127,6 +130,10 @@ function SettingsPage() {
 
       <RateForm rate={rate} accent={accent} activeVin={activeVin} />
 
+      <ExportCard activeVin={activeVin} />
+
+      <DiagnosticsCard />
+
       <SignOutRow />
 
       <span style={{ fontSize: 12, fontWeight: 500, color: TD, textAlign: 'center', lineHeight: 1.6 }}>
@@ -168,6 +175,58 @@ const inputStyle: CSSProperties = {
   fontSize: 14,
 }
 
+// ── Time-of-use schedule helpers ─────────────────────────────────────────────
+
+type DayScope = 'all' | 'weekdays' | 'weekends'
+interface BandForm {
+  name: string
+  start: string // HH:MM
+  end: string // HH:MM
+  rate: string
+  scope: DayScope
+}
+
+const WEEKDAYS = [1, 2, 3, 4, 5]
+const WEEKENDS = [0, 6]
+
+function minToHHMM(m: number): string {
+  const mm = ((Math.round(m) % 1440) + 1440) % 1440
+  return `${String(Math.floor(mm / 60)).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`
+}
+function hhmmToMin(s: string): number {
+  const [h, m] = s.split(':').map((x) => Number(x))
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
+}
+function daysFromScope(scope: DayScope): number[] | undefined {
+  if (scope === 'weekdays') return WEEKDAYS
+  if (scope === 'weekends') return WEEKENDS
+  return undefined
+}
+function scopeFromDays(days: unknown): DayScope {
+  if (!Array.isArray(days) || days.length === 0) return 'all'
+  const set = [...days].sort().join(',')
+  if (set === WEEKDAYS.join(',')) return 'weekdays'
+  if (set === WEEKENDS.join(',')) return 'weekends'
+  return 'all'
+}
+
+/** Parse the stored jsonb tou_schedule into editable band rows. */
+function bandsFromJson(json: unknown): BandForm[] {
+  if (!json || typeof json !== 'object') return []
+  const bands = (json as { bands?: unknown }).bands
+  if (!Array.isArray(bands)) return []
+  return bands.map((b) => {
+    const o = (b ?? {}) as Record<string, unknown>
+    return {
+      name: typeof o.name === 'string' ? o.name : 'Band',
+      start: minToHHMM(Number(o.startMin) || 0),
+      end: minToHHMM(Number(o.endMin) || 0),
+      rate: o.rate != null ? String(o.rate) : '',
+      scope: scopeFromDays(o.days),
+    }
+  })
+}
+
 function RateForm({
   rate,
   accent,
@@ -178,6 +237,8 @@ function RateForm({
   activeVin: string | null
 }) {
   const router = useRouter()
+  const { theme } = useDash()
+  const isDark = theme === 'dark'
   const save = useServerFn(saveRate)
   const getGps = useServerFn(getLatestVehicleGps)
   const reclassify = useServerFn(reclassifyCharges)
@@ -194,6 +255,33 @@ function RateForm({
   const [gpsMsg, setGpsMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Time-of-use tariff. `kind === 'tou'` (or an existing schedule) enables it.
+  const initialBands = bandsFromJson(rate?.tou_schedule)
+  const [touEnabled, setTouEnabled] = useState(rate?.kind === 'tou' && initialBands.length > 0)
+  const [bands, setBands] = useState<BandForm[]>(
+    initialBands.length > 0
+      ? initialBands
+      : [{ name: 'Off-peak', start: '00:00', end: '06:00', rate: '', scope: 'all' }],
+  )
+  const [touDefault, setTouDefault] = useState(
+    (rate?.tou_schedule as { defaultRate?: number } | null)?.defaultRate?.toString() ?? '',
+  )
+  // Default the local offset to the browser's, falling back to a stored value.
+  const [touOffset] = useState<number>(
+    (rate?.tou_schedule as { utcOffsetMin?: number } | null)?.utcOffsetMin ??
+      (typeof window !== 'undefined' ? -new Date().getTimezoneOffset() : 0),
+  )
+
+  function updateBand(i: number, patch: Partial<BandForm>) {
+    setBands((bs) => bs.map((b, j) => (j === i ? { ...b, ...patch } : b)))
+  }
+  function addBand() {
+    setBands((bs) => [...bs, { name: 'Band', start: '00:00', end: '00:00', rate: '', scope: 'all' }])
+  }
+  function removeBand(i: number) {
+    setBands((bs) => bs.filter((_, j) => j !== i))
+  }
 
   const num = (s: string): number | null => (s.trim() === '' ? null : Number(s))
 
@@ -232,6 +320,21 @@ function RateForm({
     try {
       const homeLatNum = num(homeLat)
       const homeLngNum = num(homeLng)
+      const touBands = touEnabled
+        ? bands
+            .filter((b) => b.rate.trim() !== '' && !Number.isNaN(Number(b.rate)))
+            .map((b) => ({
+              name: b.name.trim() || 'Band',
+              rate: Number(b.rate),
+              startMin: hhmmToMin(b.start),
+              endMin: hhmmToMin(b.end),
+              days: daysFromScope(b.scope),
+            }))
+        : []
+      const touSchedule =
+        touEnabled && touBands.length > 0
+          ? { bands: touBands, defaultRate: num(touDefault), utcOffsetMin: touOffset }
+          : null
       await save({
         data: {
           currency,
@@ -241,6 +344,7 @@ function RateForm({
           homeLng: homeLngNum,
           homeRadiusM: num(homeRadius),
           departureTargetSoc: num(departureTarget),
+          touSchedule,
         },
       })
       let text = 'Saved.'
@@ -278,6 +382,87 @@ function RateForm({
             <input type="number" step="1" min="0" max="100" placeholder="80" value={departureTarget} onChange={(e) => setDepartureTarget(e.target.value)} style={inputStyle} />
           </Field>
         </div>
+      </Card>
+
+      <Card radius={22} style={{ padding: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>Time-of-use rate</span>
+          <Segmented
+            options={[
+              { label: 'Off', value: 'off' as const },
+              { label: 'On', value: 'on' as const },
+            ]}
+            value={touEnabled ? 'on' : 'off'}
+            onChange={(v) => setTouEnabled(v === 'on')}
+            accent={accent}
+            isDark={isDark}
+          />
+        </div>
+        <p style={{ margin: '6px 0 16px', fontSize: 12, fontWeight: 500, color: TD, lineHeight: 1.5 }}>
+          When on, home-charge cost uses the band rate for the time charged (energy split across bands by
+          time), overriding the flat rate. Times are local ({minToHHMM(((touOffset % 1440) + 1440) % 1440)} from UTC).
+        </p>
+
+        {touEnabled && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {bands.map((b, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 14, background: 'var(--track,#f0f0f3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    value={b.name}
+                    onChange={(e) => updateBand(i, { name: e.target.value })}
+                    placeholder="Band name"
+                    style={{ ...inputStyle, flex: 1, background: 'var(--card,#fff)' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeBand(i)}
+                    aria-label="Remove band"
+                    style={{ flex: 'none', fontSize: 13, fontWeight: 600, color: '#f43f5e', background: 'none', border: 'none', cursor: 'pointer', padding: '0 6px' }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <Field label="From">
+                    <input type="time" value={b.start} onChange={(e) => updateBand(i, { start: e.target.value })} style={{ ...inputStyle, background: 'var(--card,#fff)' }} />
+                  </Field>
+                  <Field label="To">
+                    <input type="time" value={b.end} onChange={(e) => updateBand(i, { end: e.target.value })} style={{ ...inputStyle, background: 'var(--card,#fff)' }} />
+                  </Field>
+                  <Field label={`${currency}/kWh`}>
+                    <input type="number" step="0.0001" min="0" value={b.rate} onChange={(e) => updateBand(i, { rate: e.target.value })} style={{ ...inputStyle, background: 'var(--card,#fff)' }} />
+                  </Field>
+                </div>
+                <Field label="Applies">
+                  <select
+                    value={b.scope}
+                    onChange={(e) => updateBand(i, { scope: e.target.value as DayScope })}
+                    style={{ ...inputStyle, background: 'var(--card,#fff)' }}
+                  >
+                    <option value="all">Every day</option>
+                    <option value="weekdays">Weekdays (Mon–Fri)</option>
+                    <option value="weekends">Weekends (Sat–Sun)</option>
+                  </select>
+                </Field>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addBand}
+              style={{ alignSelf: 'flex-start', fontSize: 13, fontWeight: 600, color: TX, background: 'var(--track,#f0f0f3)', border: '1px solid var(--border,rgba(0,0,0,0.07))', borderRadius: 30, padding: '8px 14px', cursor: 'pointer' }}
+            >
+              + Add band
+            </button>
+            <Field label={`Default rate for uncovered hours (${currency}/kWh, optional)`}>
+              <input type="number" step="0.0001" min="0" placeholder="falls back to flat rate if blank" value={touDefault} onChange={(e) => setTouDefault(e.target.value)} style={inputStyle} />
+            </Field>
+            <p style={{ margin: 0, fontSize: 11, fontWeight: 500, color: TD, lineHeight: 1.5 }}>
+              Overnight bands are fine — a band whose “to” is earlier than its “from” wraps past midnight. Save, then
+              the cost recompute reprices home charges (Supercharger, imported, and manually-edited charges are left alone).
+            </p>
+          </div>
+        )}
       </Card>
 
       <Link to="/dashboard/geofences" search={(prev) => prev} style={{ textDecoration: 'none' }}>
@@ -356,6 +541,125 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {label}
       <div style={{ marginTop: 6 }}>{children}</div>
     </label>
+  )
+}
+
+// ── Data export ──────────────────────────────────────────────────────────────
+
+function ExportCard({ activeVin }: { activeVin: string | null }) {
+  const run = useServerFn(exportData)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  async function download(dataset: 'charges' | 'drives', format: 'csv' | 'json') {
+    const key = `${dataset}-${format}`
+    if (busy) return
+    setBusy(key)
+    try {
+      const f = await run({ data: { dataset, format, vin: activeVin ?? undefined } })
+      downloadString(f.filename, f.mime, f.body)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const btn = (dataset: 'charges' | 'drives', format: 'csv' | 'json') => {
+    const key = `${dataset}-${format}`
+    return (
+      <button
+        type="button"
+        onClick={() => download(dataset, format)}
+        disabled={busy != null}
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: TX,
+          background: 'var(--track,#f0f0f3)',
+          border: '1px solid var(--border,rgba(0,0,0,0.07))',
+          borderRadius: 30,
+          padding: '8px 14px',
+          cursor: busy ? 'default' : 'pointer',
+          opacity: busy && busy !== key ? 0.5 : 1,
+        }}
+      >
+        {busy === key ? 'Exporting…' : format.toUpperCase()}
+      </button>
+    )
+  }
+
+  return (
+    <Card radius={22} style={{ padding: 20 }}>
+      <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>Export data</span>
+      <p style={{ margin: '6px 0 16px', fontSize: 12, fontWeight: 500, color: TD, lineHeight: 1.5 }}>
+        Download your full charge and drive history. Per-drive GPS tracks export as GPX from the Drives tab.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: TX }}>Charges</span>
+          <div style={{ display: 'flex', gap: 8 }}>{btn('charges', 'csv')}{btn('charges', 'json')}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: TX }}>Drives</span>
+          <div style={{ display: 'flex', gap: 8 }}>{btn('drives', 'csv')}{btn('drives', 'json')}</div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ── Database diagnostics ─────────────────────────────────────────────────────
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString()
+}
+
+function DiagnosticsCard() {
+  const run = useServerFn(getDbInfo)
+  const [info, setInfo] = useState<DbInfo | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    if (busy) return
+    setBusy(true)
+    try {
+      setInfo(await run())
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card radius={22} style={{ padding: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>Database</span>
+        <button
+          type="button"
+          onClick={load}
+          disabled={busy}
+          style={{ fontSize: 13, fontWeight: 600, color: TX, background: 'var(--track,#f0f0f3)', border: '1px solid var(--border,rgba(0,0,0,0.07))', borderRadius: 30, padding: '7px 14px', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}
+        >
+          {busy ? 'Loading…' : info ? 'Refresh' : 'Show'}
+        </button>
+      </div>
+      {info && (
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {info.tables.map((t) => (
+            <div key={t.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: TD, fontFamily: 'monospace' }}>{t.name}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: TX }}>{t.rows.toLocaleString()}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, paddingTop: 12, borderTop: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Database size</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: TX }}>{info.dbSize ?? '—'}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Data since</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: TX }}>{fmtDate(info.oldestSnapshot)} → {fmtDate(info.newestSnapshot)}</span>
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }
 

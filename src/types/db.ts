@@ -30,6 +30,7 @@ export type CostSource =
   | 'tesla_billed_free'
   | 'imported_teslamate'
   | 'geofence'
+  | 'manual'
 export type ChargeLocationType = 'home' | 'away' | 'supercharger' | 'unknown'
 export type BillingType = 'per_kwh' | 'per_minute' | 'per_session'
 export type VehicleStateKind = 'online' | 'asleep' | 'offline' | 'driving' | 'charging'

@@ -137,6 +137,65 @@ function round(n: number, dp = 2): number {
   return Math.round(n * f) / f
 }
 
+/**
+ * Manually set or clear a charge session's cost (TeslaMate's "edit charge cost"
+ * parity). A set marks the row `cost_source='manual'` so the reclassify/recost
+ * pass and the home-rate recompute never overwrite it (see FROZEN in
+ * rate.functions.ts). Passing `cost: null` reverts the row to `computed`, letting
+ * automatic costing reclaim it on the next recompute. Scoped to the user's row.
+ *
+ * Note: reconcile only rewrites Supercharger sessions matched to Tesla billing
+ * (home charges it never touches), so manual edits to home charges are durable;
+ * a manual edit to a not-yet-reconciled Supercharger session will still be
+ * superseded by Tesla's authoritative billed amount when it arrives.
+ */
+export const setChargeCost = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .validator(
+    z.object({
+      id: z.number().int().positive(),
+      cost: z.number().nonnegative().max(1_000_000).nullable(),
+      currency: z.string().min(1).max(8).optional(),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<{ ok: boolean }> =>
+    withDb(async (db) => {
+      const userId = context.userId
+      const now = new Date().toISOString()
+
+      if (data.cost == null) {
+        // Revert to automatic: drop the manual flag; the next reclassify recomputes it.
+        await db
+          .update(chargeSession)
+          .set({ cost_source: 'computed', updated_at: now })
+          .where(and(eq(chargeSession.id, data.id), eq(chargeSession.user_id, userId)))
+        return { ok: true }
+      }
+
+      // Preserve the existing currency unless the caller supplies one.
+      let currency = data.currency
+      if (!currency) {
+        const [row] = await db
+          .select({ c: chargeSession.cost_currency })
+          .from(chargeSession)
+          .where(and(eq(chargeSession.id, data.id), eq(chargeSession.user_id, userId)))
+          .limit(1)
+        currency = row?.c ?? 'USD'
+      }
+
+      await db
+        .update(chargeSession)
+        .set({
+          cost_amount: data.cost,
+          cost_currency: currency,
+          cost_source: 'manual',
+          updated_at: now,
+        })
+        .where(and(eq(chargeSession.id, data.id), eq(chargeSession.user_id, userId)))
+      return { ok: true }
+    }),
+  )
+
 export interface ChargeDetail {
   /** Whether any per-snapshot power/SOC was captured during the session. */
   hasData: boolean

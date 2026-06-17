@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { computeChargeCost } from './cost'
+import { computeChargeCost, parseTouSchedule, touWeightedRate, type TouSchedule } from './cost'
 import { findGeofence } from './geo'
 
 const home = { flat_rate: 0.15, loss_factor: 1.1, currency: 'USD' }
+
+// All TOU tests use utcOffsetMin: 0, so ISO-Z times map directly to local minutes.
+const SCHED: TouSchedule = {
+  utcOffsetMin: 0,
+  defaultRate: 0.25,
+  bands: [
+    { name: 'Off', rate: 0.1, startMin: 0, endMin: 360 }, // 00:00–06:00
+    { name: 'Peak', rate: 0.4, startMin: 960, endMin: 1260 }, // 16:00–21:00
+  ],
+}
 
 describe('computeChargeCost', () => {
   it('free supercharging → 0, tesla_billed_free', () => {
@@ -63,6 +73,84 @@ describe('computeChargeCost', () => {
   it('away AC charge with no rule → null', () => {
     const r = computeChargeCost({ source: 'home', energyAddedKwh: 10, isHome: false, homeRate: home })
     expect(r.cost_amount).toBeNull()
+  })
+})
+
+describe('touWeightedRate', () => {
+  it('charge fully inside one band → that band rate', () => {
+    const r = touWeightedRate(SCHED, '2026-01-01T01:00:00Z', '2026-01-01T02:00:00Z')
+    expect(r).toBeCloseTo(0.1, 6)
+  })
+
+  it('charge straddling a band edge → time-weighted average with default', () => {
+    // 05:30–06:30: 30 min in Off (0.10), 30 min uncovered (default 0.25).
+    const r = touWeightedRate(SCHED, '2026-01-01T05:30:00Z', '2026-01-01T06:30:00Z')
+    expect(r).toBeCloseTo((30 * 0.1 + 30 * 0.25) / 60, 4)
+  })
+
+  it('overnight band wraps past midnight', () => {
+    const wrap: TouSchedule = { utcOffsetMin: 0, defaultRate: 0.3, bands: [{ name: 'Night', rate: 0.1, startMin: 1320, endMin: 120 }] }
+    const r = touWeightedRate(wrap, '2026-01-01T23:00:00Z', '2026-01-02T01:00:00Z')
+    expect(r).toBeCloseTo(0.1, 6)
+  })
+
+  it('weekday-scoped band only applies on weekdays', () => {
+    const wk: TouSchedule = { utcOffsetMin: 0, defaultRate: 0.3, bands: [{ name: 'Cheap', rate: 0.1, startMin: 0, endMin: 1440, days: [1, 2, 3, 4, 5] }] }
+    // 2026-01-01 is a Thursday (weekday) → band; 2026-01-03 is Saturday → default.
+    expect(touWeightedRate(wk, '2026-01-01T01:00:00Z', '2026-01-01T02:00:00Z')).toBeCloseTo(0.1, 6)
+    expect(touWeightedRate(wk, '2026-01-03T01:00:00Z', '2026-01-03T02:00:00Z')).toBeCloseTo(0.3, 6)
+  })
+
+  it('no window → null', () => {
+    expect(touWeightedRate(SCHED, null, null)).toBeNull()
+  })
+})
+
+describe('parseTouSchedule', () => {
+  it('returns null for non-objects / empty', () => {
+    expect(parseTouSchedule(null)).toBeNull()
+    expect(parseTouSchedule([])).toBeNull()
+    expect(parseTouSchedule({ bands: [] })).toBeNull()
+  })
+  it('parses valid bands and drops malformed ones', () => {
+    const s = parseTouSchedule({
+      bands: [
+        { name: 'Off', rate: 0.1, startMin: 0, endMin: 360 },
+        { name: 'bad', rate: 'x', startMin: 0, endMin: 1 }, // dropped
+      ],
+      defaultRate: 0.25,
+      utcOffsetMin: -420,
+    })
+    expect(s?.bands.length).toBe(1)
+    expect(s?.utcOffsetMin).toBe(-420)
+  })
+})
+
+describe('computeChargeCost (time-of-use)', () => {
+  it('TOU schedule overrides flat rate for home charges', () => {
+    const r = computeChargeCost({
+      source: 'home',
+      energyAddedKwh: 10,
+      isHome: true,
+      homeRate: { ...home, tou: SCHED },
+      startedAt: '2026-01-01T01:00:00Z',
+      endedAt: '2026-01-01T02:00:00Z',
+    })
+    // Off-peak 0.10 × 10 kWh × 1.1 loss.
+    expect(r.cost_amount).toBeCloseTo(10 * 0.1 * 1.1, 6)
+    expect(r.cost_source).toBe('computed')
+    expect(r.rate_applied).toBeCloseTo(0.1, 6)
+  })
+
+  it('falls back to flat rate when the window is missing', () => {
+    const r = computeChargeCost({
+      source: 'home',
+      energyAddedKwh: 10,
+      isHome: true,
+      homeRate: { ...home, tou: SCHED },
+    })
+    expect(r.cost_amount).toBeCloseTo(10 * 0.15 * 1.1, 6)
+    expect(r.rate_applied).toBe(0.15)
   })
 })
 

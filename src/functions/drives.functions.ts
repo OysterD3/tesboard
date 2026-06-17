@@ -182,3 +182,53 @@ export const getDriveRoute = createServerFn({ method: 'GET' })
     if (drive.end_lat != null && drive.end_lng != null) ends.push([drive.end_lat, drive.end_lng])
     return { points: ends, sampled: false }
   }))
+
+export interface VisitedMap {
+  /** Deduped [lat, lng] cells the car has been seen at — a lifetime "visited" scatter. */
+  points: [number, number][]
+  /** Snapshots scanned before grid-deduping (capped). */
+  scanned: number
+}
+
+/**
+ * TeslaMate "Visited (lifetime driving map)" parity. The Fleet API has no path
+ * endpoint, so this is every non-null `vehicle_snapshot` GPS fix the poller stored,
+ * snapped to a ~11 m grid (4 decimal places) and deduped to unique cells. That
+ * bounds the payload and renders as a heat/track scatter of everywhere the car
+ * has been — at the 2-min poll cadence, not a road-matched trace. Scoped to the
+ * user's rows; a recent window is scanned to keep the read bounded.
+ */
+export const getVisitedMap = createServerFn({ method: 'GET' })
+  .middleware([authMiddleware])
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<VisitedMap> =>
+    withDb(async (db) => {
+    const userId = context.userId
+    const vin = data?.vin
+
+    const rows = await db
+      .select({ lat: vehicleSnapshot.latitude, lng: vehicleSnapshot.longitude })
+      .from(vehicleSnapshot)
+      .where(
+        and(
+          eq(vehicleSnapshot.user_id, userId),
+          vin ? eq(vehicleSnapshot.vin, vin) : undefined,
+          isNotNull(vehicleSnapshot.latitude),
+          isNotNull(vehicleSnapshot.longitude),
+        ),
+      )
+      .orderBy(desc(vehicleSnapshot.recorded_at))
+      .limit(100_000)
+
+    const seen = new Set<string>()
+    const points: [number, number][] = []
+    for (const r of rows) {
+      if (r.lat == null || r.lng == null) continue
+      // ~11 m grid: round to 4 dp and dedupe to one point per cell.
+      const key = `${r.lat.toFixed(4)},${r.lng.toFixed(4)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      points.push([r.lat, r.lng])
+    }
+    return { points, scanned: rows.length }
+  }))

@@ -14,11 +14,15 @@ export function LeafletMap({
   color,
   isDark,
   height = 206,
+  mode = 'route',
 }: {
   points: [number, number][]
   color: string
   isDark: boolean
   height?: number
+  /** 'route' = connected breadcrumb + start/end dots (a single drive); 'scatter'
+   *  = unconnected dots that fit all points (the lifetime "visited" map). */
+  mode?: 'route' | 'scatter'
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<Leaflet.Map | null>(null)
@@ -50,6 +54,19 @@ export function LeafletMap({
       layersRef.current = []
       if (points.length === 0) return
 
+      if (mode === 'scatter') {
+        const group = L.featureGroup()
+        for (const p of points) {
+          L.circleMarker(p, { radius: 3, color, weight: 0, fillColor: color, fillOpacity: 0.5 }).addTo(group)
+        }
+        group.addTo(map)
+        layersRef.current.push(group)
+        if (points.length === 1) map.setView(points[0], 13)
+        else map.fitBounds(group.getBounds(), { padding: [24, 24], maxZoom: 15 })
+        setTimeout(() => map.invalidateSize(), 0)
+        return
+      }
+
       if (points.length >= 2) {
         const line = L.polyline(points, { color, weight: 4, opacity: 0.9, lineJoin: 'round', lineCap: 'round' }).addTo(map)
         layersRef.current.push(line)
@@ -74,7 +91,7 @@ export function LeafletMap({
     return () => {
       cancelled = true
     }
-  }, [points, color])
+  }, [points, color, mode])
 
   // Tear the map down only on unmount.
   useEffect(() => {
