@@ -3,13 +3,16 @@ import {
   binConsumptionByTemp,
   bucketMileage,
   buildBatteryHealth,
+  buildPhantomCauses,
   buildPhantomDrain,
   capacityKwh,
   integrateGridEnergyKwh,
   measuredLossPct,
+  sumChargeEnergyAdded,
   mergeTimeline,
   periodKey,
   projectedRangeMi,
+  type PhantomCauseSnap,
   type PhantomSnap,
 } from './analytics-vm'
 
@@ -122,6 +125,77 @@ describe('buildPhantomDrain', () => {
     ])
     expect(r.lostMi).toBe(0)
     expect(r.hasData).toBe(false)
+  })
+})
+
+describe('buildPhantomCauses', () => {
+  const snap = (at: string, mi: number, over: Partial<PhantomCauseSnap> = {}): PhantomCauseSnap => ({
+    est: mi,
+    rng: mi,
+    charging: null,
+    shift: 'P',
+    at,
+    outsideC: 20,
+    sentry: null,
+    climateOn: null,
+    ...over,
+  })
+
+  // Each cause tested as an isolated pair (attribution reads both endpoints, so
+  // adjacent intervals would otherwise bleed flags into each other).
+  const cause = (a: Partial<PhantomCauseSnap>, b: Partial<PhantomCauseSnap>) =>
+    buildPhantomCauses([
+      snap('2026-06-01T00:00:00Z', 200, a),
+      snap('2026-06-01T00:02:00Z', 197, b),
+    ]).slices[0]?.cause
+
+  it('attributes by priority: sentry > climate > cold > awake', () => {
+    expect(cause({ sentry: true }, { sentry: true, climateOn: true })).toBe('sentry')
+    expect(cause({ climateOn: true }, { climateOn: true, outsideC: 0 })).toBe('climate')
+    expect(cause({ outsideC: 0 }, { outsideC: 0 })).toBe('cold')
+    expect(cause({}, {})).toBe('awake') // warm, parked, no flags
+  })
+
+  it('preconditioning counts as climate (climateOn folds is_preconditioning)', () => {
+    expect(cause({ climateOn: true }, { climateOn: true })).toBe('climate')
+  })
+
+  it('attributes a drop across a long sample gap to asleep baseline', () => {
+    const r = buildPhantomCauses([
+      snap('2026-06-01T00:00:00Z', 200, { sentry: true }), // sentry flag present...
+      snap('2026-06-01T06:00:00Z', 197), // ...but 6h gap ⇒ slept ⇒ asleep, not sentry
+    ])
+    expect(r.slices).toEqual([{ cause: 'asleep', lostMi: 3, pct: 100 }])
+  })
+
+  it('ignores charging and driving intervals', () => {
+    const r = buildPhantomCauses([
+      snap('2026-06-01T00:00:00Z', 200),
+      snap('2026-06-01T00:02:00Z', 198, { charging: 'Charging' }),
+      snap('2026-06-01T00:04:00Z', 196, { shift: 'D' }),
+    ])
+    expect(r.hasData).toBe(false)
+  })
+})
+
+describe('sumChargeEnergyAdded', () => {
+  it('returns the final peak for a single monotonic charge', () => {
+    expect(sumChargeEnergyAdded([0, 5, 12, 28, 41.2])).toBeCloseTo(41.2, 6)
+  })
+
+  it('does NOT re-bank on sample noise (the 193 kWh bug)', () => {
+    // A ~40 kWh charge that wiggles down by rounding noise must stay ~40, not balloon.
+    const noisy = [0, 10, 9.9, 20, 19.8, 30, 29.9, 40, 39.9, 41]
+    expect(sumChargeEnergyAdded(noisy)).toBeCloseTo(41, 6)
+  })
+
+  it('sums across a genuine reset (two physical charges in one window)', () => {
+    // 0→40, reset to 0, 0→35 ⇒ 75 total.
+    expect(sumChargeEnergyAdded([0, 20, 40, 0.3, 15, 35])).toBeCloseTo(75, 6)
+  })
+
+  it('returns null with no readings', () => {
+    expect(sumChargeEnergyAdded([])).toBeNull()
   })
 })
 

@@ -56,12 +56,17 @@ export interface TeslaVehicleState {
   tpms_pressure_fr?: number | null
   tpms_pressure_rl?: number | null
   tpms_pressure_rr?: number | null
+  // Standby-drain cause signal: Sentry Mode draws meaningful idle power.
+  sentry_mode?: boolean | null
 }
 
 export interface TeslaClimateState {
   // Cabin temperatures are reported in °C.
   inside_temp?: number | null
   outside_temp?: number | null
+  // Standby-drain cause signals: active HVAC / preconditioning while parked.
+  is_climate_on?: boolean | null
+  is_preconditioning?: boolean | null
 }
 
 export interface TeslaGuiSettings {

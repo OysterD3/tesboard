@@ -29,6 +29,13 @@
       "when": 1781525430780,
       "tag": "0003_nostalgic_rhodey",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781696933617,
+      "tag": "0004_broken_vector",
+      "breakpoints": true
     }
   ]
 }

@@ -36,6 +36,7 @@ import { classifyChargeLocation, findGeofence } from './geo'
 import { cachedAddressNear, findOrCreateAddress } from './geocode'
 import { computeChargeCost } from './cost'
 import { recalculateEfficiency } from './efficiency'
+import { sumChargeEnergyAdded } from '../lib/analytics-vm'
 import type { ElectricityRate, Geofence, Json } from '../types/db'
 
 /**
@@ -189,6 +190,9 @@ async function insertSnapshot(
       speed: ds.speed ?? null,
       charger_voltage: cs.charger_voltage ?? null,
       power_kw: ds.power ?? null,
+      sentry_mode: vs.sentry_mode ?? null,
+      is_climate_on: cl.is_climate_on ?? null,
+      is_preconditioning: cl.is_preconditioning ?? null,
       gps_as_of: locationAsOf(ds),
       raw_json: data as unknown as Json,
     })
@@ -299,7 +303,7 @@ async function closeChargeSession(
   summary: PollSummary,
 ): Promise<void> {
   const agg = await aggregateSnapshots(db, vin, userId, open.started_at, endedAt)
-  const energyKwh = agg.energyAdded ?? open.energy_added_kwh ?? 0
+  let energyKwh = agg.energyAdded ?? open.energy_added_kwh ?? 0
   const milesAdded =
     agg.endRange != null && agg.startRange != null ? agg.endRange - agg.startRange : null
   // Sustained high power (>= N readings), not a single noisy spike, marks a Supercharger.
@@ -340,10 +344,18 @@ async function closeChargeSession(
     Math.round((new Date(endedAt).getTime() - new Date(open.started_at).getTime()) / 1000),
   )
   const [veh] = await db
-    .select({ free_supercharging: vehicle.free_supercharging })
+    .select({ free_supercharging: vehicle.free_supercharging, pack_kwh: vehicle.pack_kwh })
     .from(vehicle)
     .where(and(eq(vehicle.vin, vin), eq(vehicle.user_id, userId)))
     .limit(1)
+
+  // Physical backstop: a single charge session can't add more than the pack holds
+  // (0→100%). If a counter glitch or a merged multi-charge window still produced
+  // more, clamp so cost can't run away. The detection fix above is the real cure.
+  if (veh?.pack_kwh != null && veh.pack_kwh > 0 && energyKwh > veh.pack_kwh) {
+    summary.errors.push(`charge energy ${energyKwh.toFixed(1)} kWh > pack ${veh.pack_kwh} for ${vin}; clamped`)
+    energyKwh = veh.pack_kwh
+  }
 
   const costR = computeChargeCost({
     source,
@@ -661,25 +673,10 @@ async function aggregateSnapshots(
     ? powers.reduce((a, b) => a + b, 0) / powers.length
     : null
 
-  // charge_energy_added resets to 0 at each physical charge start and rises
-  // monotonically. Sum per-segment peaks so a missed unplug/replug boundary in
-  // one local session doesn't under-count (Math.max would keep only the larger).
-  let energyAdded: number | null = null
-  if (energies.length) {
-    let total = 0
-    let segPeak = 0
-    let prev = -Infinity
-    for (const e of energies) {
-      if (e < prev) {
-        total += segPeak
-        segPeak = e
-      } else {
-        segPeak = Math.max(segPeak, e)
-      }
-      prev = e
-    }
-    energyAdded = total + segPeak
-  }
+  // charge_energy_added resets toward 0 at each physical charge start and rises
+  // monotonically; sum per-segment peaks across GENUINE resets (large fractional
+  // drops), ignoring sample noise. See sumChargeEnergyAdded.
+  const energyAdded = sumChargeEnergyAdded(energies)
 
   return {
     startRange: ranges.at(0) ?? null,

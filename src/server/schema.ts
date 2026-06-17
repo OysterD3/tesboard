@@ -137,6 +137,11 @@ export const vehicleSnapshot = pgTable(
     charger_phases: integer('charger_phases'),
     power_kw: doublePrecision('power_kw'),
     elevation_m: integer('elevation_m'),
+    // Standby-drain cause signals (from vehicle_state / climate_state). Used to
+    // attribute phantom/vampire loss while parked. Live-poll only; null on imports.
+    sentry_mode: boolean('sentry_mode'),
+    is_climate_on: boolean('is_climate_on'),
+    is_preconditioning: boolean('is_preconditioning'),
     gps_as_of: ts('gps_as_of'),
     raw_json: jsonb('raw_json').$type<Json>(),
     // Provenance: 'live' for poller rows; 'teslamate_position' / 'teslamate_charge'

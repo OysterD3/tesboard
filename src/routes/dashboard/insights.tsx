@@ -1,9 +1,17 @@
 import { createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import { useServerFn } from '@tanstack/react-start'
 import { Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON } from '../../components/dashboard/theme'
 import { buildInsights, buildOverview } from '../../lib/dashboard-vm'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
+import {
+  getPhantomCauses,
+  backfillStandbyFlags,
+  type PhantomCausesPayload,
+} from '../../functions/phantom-causes.functions'
+import type { PhantomCause } from '../../lib/analytics-vm'
 
 export const Route = createFileRoute('/dashboard/insights')({
   component: InsightsPage,
@@ -136,7 +144,105 @@ function InsightsPage() {
       ) : (
         <EmptyCard title="No standby loss measured yet" body="Phantom drain is derived from snapshots taken while parked and unplugged — it appears once enough have accumulated." />
       )}
+
+      {/* Phantom-drain cause attribution (lazy + error-safe) */}
+      {vm.phantom && <PhantomCausesCard />}
     </div>
+  )
+}
+
+const CAUSE_META: Record<PhantomCause, { label: string; color: string }> = {
+  sentry: { label: 'Sentry Mode', color: '#f43f5e' },
+  climate: { label: 'Climate / preheat', color: '#f59e0b' },
+  cold: { label: 'Cold ambient', color: '#0a84ff' },
+  awake: { label: 'Awake (idle)', color: '#8b5cf6' },
+  asleep: { label: 'Asleep (baseline)', color: '#86868b' },
+}
+
+/**
+ * Standby-loss cause breakdown. Fetches on its own (off the main loader) and
+ * degrades silently if the cause-flag migration hasn't been applied yet, so it
+ * can never block the rest of the Insights view.
+ */
+function PhantomCausesCard() {
+  const { units: u } = useDash()
+  const fetchCauses = useServerFn(getPhantomCauses)
+  const runBackfill = useServerFn(backfillStandbyFlags)
+  const [data, setData] = useState<PhantomCausesPayload | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchCauses({ data: {} })
+      .then((d) => !cancelled && setData(d))
+      .catch(() => !cancelled && setData(null))
+    return () => {
+      cancelled = true
+    }
+  }, [fetchCauses])
+
+  async function backfill() {
+    if (busy) return
+    setBusy(true)
+    try {
+      for (let i = 0; i < 40; i++) {
+        const r = await runBackfill()
+        if (!r.available || r.remaining === 0 || r.updated === 0) break
+      }
+      const fresh = await fetchCauses({ data: {} })
+      setData(fresh)
+    } catch {
+      /* leave existing data */
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Nothing to show until we have a confirmed-available result with data.
+  if (!data || !data.available || !data.hasData) return null
+
+  return (
+    <Card radius={22} style={{ padding: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>What drained it · last 30 days</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: TD }}>{fmtDist(u, data.totalMi * 1.60934, 1)} {distUnit(u)}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 16 }}>
+        {data.slices.map((s) => {
+          const meta = CAUSE_META[s.cause]
+          return (
+            <div key={s.cause}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: TX }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color }} />
+                  {meta.label}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{fmtDist(u, s.lostMi * 1.60934, 1)} {distUnit(u)} · {s.pct}%</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 5, background: 'var(--track,#f0f0f3)', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.max(2, s.pct)}%`, height: '100%', background: meta.color }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, gap: 12 }}>
+        <span style={{ fontSize: 11, fontWeight: 500, color: TD, lineHeight: 1.4 }}>
+          Attributed by what was active each interval — a heuristic, not metered.
+        </span>
+        {data.unattributed > 0 && (
+          <button
+            type="button"
+            onClick={backfill}
+            disabled={busy}
+            title="Fill cause flags for older snapshots from stored data"
+            style={{ flex: 'none', cursor: busy ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, color: busy ? TD : '#f43f5e', background: 'transparent', border: `1px solid ${busy ? 'var(--border,rgba(0,0,0,0.08))' : '#f43f5e'}`, borderRadius: 30, padding: '6px 12px', whiteSpace: 'nowrap' }}
+          >
+            {busy ? 'Backfilling…' : 'Improve history'}
+          </button>
+        )}
+      </div>
+    </Card>
   )
 }
 

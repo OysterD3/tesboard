@@ -199,6 +199,75 @@ export function buildPhantomDrain(snaps: PhantomSnap[], maxIntervalDropMi = 10):
   }
 }
 
+// ── Phantom / vampire loss cause attribution ──────────────────────────────────
+
+export type PhantomCause = 'sentry' | 'climate' | 'cold' | 'awake' | 'asleep'
+
+/** A snapshot row reduced to what cause attribution needs. */
+export interface PhantomCauseSnap extends PhantomSnap {
+  outsideC: number | null
+  sentry: boolean | null
+  climateOn: boolean | null // is_climate_on OR is_preconditioning
+}
+export interface PhantomCauseSlice {
+  cause: PhantomCause
+  lostMi: number
+  pct: number
+}
+export interface PhantomCausesResult {
+  hasData: boolean
+  totalMi: number
+  slices: PhantomCauseSlice[]
+}
+
+const PHANTOM_AWAKE_GAP_MIN = 12 // gap > this between samples ⇒ the car slept in between
+const PHANTOM_COLD_C = 5 // at/below this outside temp, attribute otherwise-idle loss to cold
+
+/**
+ * Attribute standby (vampire) range loss to a likely cause, per parked+unplugged
+ * interval. This is a correlation heuristic — Tesla exposes no per-subsystem
+ * energy — so each loss slice is tagged by what was active over that interval,
+ * by priority: a sleep gap (asleep baseline) → Sentry → climate/preconditioning
+ * → cold ambient → awake-but-idle. Pure; the server fn supplies the rows.
+ */
+export function buildPhantomCauses(
+  snaps: PhantomCauseSnap[],
+  maxIntervalDropMi = 10,
+): PhantomCausesResult {
+  const range = (s: PhantomCauseSnap) => s.est ?? s.rng
+  const parkedUnplugged = (s: PhantomCauseSnap) =>
+    (s.shift == null || s.shift === 'P') && s.charging !== 'Charging'
+
+  const totals = new Map<PhantomCause, number>()
+  for (let i = 1; i < snaps.length; i++) {
+    const a = snaps[i - 1]
+    const b = snaps[i]
+    if (!parkedUnplugged(a) || !parkedUnplugged(b)) continue
+    const ra = range(a)
+    const rb = range(b)
+    if (ra == null || rb == null) continue
+    const drop = ra - rb
+    if (!(drop > 0 && drop <= maxIntervalDropMi)) continue
+
+    const gapMin = (new Date(b.at).getTime() - new Date(a.at).getTime()) / 60_000
+    let cause: PhantomCause
+    if (gapMin > PHANTOM_AWAKE_GAP_MIN) cause = 'asleep'
+    else if (a.sentry || b.sentry) cause = 'sentry'
+    else if (a.climateOn || b.climateOn) cause = 'climate'
+    else if (b.outsideC != null && b.outsideC <= PHANTOM_COLD_C) cause = 'cold'
+    else cause = 'awake'
+    totals.set(cause, (totals.get(cause) ?? 0) + drop)
+  }
+
+  const totalMi = [...totals.values()].reduce((a, b) => a + b, 0)
+  if (totalMi <= 0) return { hasData: false, totalMi: 0, slices: [] }
+  const round1 = (n: number) => Math.round(n * 10) / 10
+  const slices = [...totals.entries()]
+    .map(([cause, mi]) => ({ cause, lostMi: round1(mi), pct: Math.round((mi / totalMi) * 100) }))
+    .sort((a, b) => b.lostMi - a.lostMi)
+  return { hasData: true, totalMi: round1(totalMi), slices }
+}
+
 // ── Charging energy / measured AC loss ────────────────────────────────────────
 
 /** A charge snapshot reduced to grid-power integration inputs. */
@@ -207,6 +276,35 @@ export interface ChargePowerSample {
   voltage: number | null // charger_voltage (V)
   current: number | null // charger_actual_current (A)
   phases: number | null // charger_phases
+}
+
+/**
+ * Sum `charge_energy_added` (kWh) across genuine charge resets within a session
+ * window. The counter rises monotonically during a single charge and resets
+ * toward zero at each new physical charge, so we bank the peak of each segment.
+ *
+ * A reset is a LARGE fractional drop (next reading < half the running peak) — not
+ * any decrease. Treating every sample-to-sample dip as a reset (the old bug)
+ * re-banked the running peak on rounding noise and inflated a normal ~40 kWh
+ * charge into hundreds of kWh. Returns null when there are no readings.
+ */
+export function sumChargeEnergyAdded(energies: number[]): number | null {
+  const vals = energies.filter((e) => Number.isFinite(e) && e >= 0)
+  if (!vals.length) return null
+  let total = 0
+  let segPeak = 0
+  let prev = -Infinity
+  for (const e of vals) {
+    if (prev > 1 && e < prev * 0.5) {
+      // genuine reset → bank the finished segment, start a new one
+      total += segPeak
+      segPeak = e
+    } else {
+      segPeak = Math.max(segPeak, e)
+    }
+    prev = e
+  }
+  return total + segPeak
 }
 
 /**

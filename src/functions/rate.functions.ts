@@ -5,13 +5,14 @@
  * home rate. Also a nightly departure target (%) for the readiness card.
  */
 import { createServerFn } from '@tanstack/react-start'
-import { and, desc, eq, isNotNull } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, isNotNull, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { withDb, type Db } from '../server/db'
 import { vinFilter } from './vin'
 import { classifyChargeLocation, findGeofence } from '../server/geo'
 import { computeChargeCost } from '../server/cost'
+import { sumChargeEnergyAdded } from '../lib/analytics-vm'
 import { chargeSession, electricityRate, geofence, vehicle, vehicleSnapshot } from '../server/schema'
 import type { ChargeSession, ElectricityRate, Geofence } from '../types/db'
 
@@ -230,3 +231,116 @@ export const reclassifyCharges = createServerFn({ method: 'POST' })
     }
     return { reclassified, recosted }
   }))
+
+/**
+ * One-time repair: re-derive each computed charge session's `energy_added_kwh`
+ * from its `vehicle_snapshot` charge_energy_added readings using the fixed
+ * reset-aware summation (the old summation re-banked the running peak on sample
+ * noise, inflating sessions to impossible kWh — e.g. 193 kWh on AC), clamp to the
+ * pack size, and recompute home cost from the corrected energy. NEVER touches
+ * authoritative/imported costs, and skips sessions with no snapshot energy
+ * (imports, pre-poller history) so it can't zero out a legitimate value.
+ */
+export const repairChargeEnergy = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<{ scanned: number; repaired: number }> =>
+    withDb(async (db) => {
+      const userId = context.userId
+      const rate = await getRateCore(db, userId)
+      const geofences = (await db
+        .select()
+        .from(geofence)
+        .where(eq(geofence.user_id, userId))) as Geofence[]
+      const vehRows = await db
+        .select({ vin: vehicle.vin, pack_kwh: vehicle.pack_kwh, free: vehicle.free_supercharging })
+        .from(vehicle)
+        .where(eq(vehicle.user_id, userId))
+      const packByVin = new Map(vehRows.map((v) => [v.vin, v.pack_kwh]))
+      const freeVins = new Set(vehRows.filter((v) => v.free).map((v) => v.vin))
+
+      // Only computed/geofence home costs are recomputable; Tesla-billed + imports stay frozen.
+      const sessions = (await db
+        .select()
+        .from(chargeSession)
+        .where(and(eq(chargeSession.user_id, userId), isNotNull(chargeSession.ended_at)))) as ChargeSession[]
+      const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate'])
+
+      let scanned = 0
+      let repaired = 0
+      for (const s of sessions) {
+        if (FROZEN.has(s.cost_source)) continue
+        scanned++
+
+        const snaps = await db
+          .select({ e: vehicleSnapshot.charge_energy_added })
+          .from(vehicleSnapshot)
+          .where(
+            and(
+              eq(vehicleSnapshot.user_id, userId),
+              eq(vehicleSnapshot.vin, s.vin),
+              gte(vehicleSnapshot.recorded_at, s.started_at),
+              lte(vehicleSnapshot.recorded_at, s.ended_at ?? s.started_at),
+            ),
+          )
+          .orderBy(asc(vehicleSnapshot.recorded_at))
+        const energies = snaps.map((r) => r.e).filter((n): n is number => n != null)
+        let newEnergy = sumChargeEnergyAdded(energies)
+        if (newEnergy == null) continue // no snapshot energy — leave as-is
+
+        const pack = packByVin.get(s.vin)
+        if (pack != null && pack > 0 && newEnergy > pack) newEnergy = pack
+
+        const round2 = (n: number) => Math.round(n * 100) / 100
+        newEnergy = round2(newEnergy)
+        const energyChanged = s.energy_added_kwh == null || round2(s.energy_added_kwh) !== newEnergy
+        if (!energyChanged) continue
+
+        const gf = findGeofence(s.lat, s.lng, geofences)
+        const type =
+          s.source === 'supercharger'
+            ? 'supercharger'
+            : gf
+              ? gf.is_home
+                ? 'home'
+                : 'away'
+              : classifyChargeLocation(s.source, s.lat, s.lng, rate ?? null)
+        const durationS =
+          s.ended_at != null
+            ? Math.max(0, Math.round((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000))
+            : null
+        const costR = computeChargeCost({
+          source: s.source,
+          freeSupercharging: freeVins.has(s.vin),
+          energyAddedKwh: newEnergy,
+          energyUsedKwh: s.energy_used_kwh,
+          durationS,
+          geofence: gf
+            ? {
+                billing_type: gf.billing_type,
+                cost_per_unit: gf.cost_per_unit,
+                session_fee: gf.session_fee,
+                currency: gf.currency,
+                is_home: gf.is_home,
+              }
+            : null,
+          homeRate: rate
+            ? { flat_rate: rate.flat_rate, loss_factor: rate.loss_factor, currency: rate.currency }
+            : null,
+          isHome: type === 'home',
+        })
+
+        await db
+          .update(chargeSession)
+          .set({
+            energy_added_kwh: newEnergy,
+            cost_amount: costR.cost_amount,
+            cost_currency: costR.cost_currency,
+            rate_applied: costR.rate_applied,
+            updated_at: new Date().toISOString(),
+          })
+          .where(and(eq(chargeSession.id, s.id), eq(chargeSession.user_id, userId)))
+        repaired++
+      }
+      return { scanned, repaired }
+    }),
+  )

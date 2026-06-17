@@ -4,6 +4,7 @@ import { useServerFn } from '@tanstack/react-start'
 import {
   getLatestVehicleGps,
   reclassifyCharges,
+  repairChargeEnergy,
   saveRate,
 } from '../../functions/rate.functions'
 import { Card, Segmented, ViewTitle } from '../../components/dashboard/primitives'
@@ -180,6 +181,8 @@ function RateForm({
   const save = useServerFn(saveRate)
   const getGps = useServerFn(getLatestVehicleGps)
   const reclassify = useServerFn(reclassifyCharges)
+  const repair = useServerFn(repairChargeEnergy)
+  const [repairState, setRepairState] = useState<{ busy: boolean; text: string | null }>({ busy: false, text: null })
 
   const [currency, setCurrency] = useState(rate?.currency ?? 'USD')
   const [flatRate, setFlatRate] = useState(rate?.flat_rate?.toString() ?? '')
@@ -193,6 +196,18 @@ function RateForm({
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const num = (s: string): number | null => (s.trim() === '' ? null : Number(s))
+
+  async function runRepair() {
+    if (repairState.busy) return
+    setRepairState({ busy: true, text: null })
+    try {
+      const r = await repair()
+      setRepairState({ busy: false, text: `Scanned ${r.scanned} session(s), corrected ${r.repaired}.` })
+      router.invalidate()
+    } catch (err) {
+      setRepairState({ busy: false, text: (err as Error).message })
+    }
+  }
 
   async function useCarGps() {
     setGpsMsg(null)
@@ -299,6 +314,25 @@ function RateForm({
             Use car’s latest GPS
           </button>
           {gpsMsg && <p style={{ margin: 0, fontSize: 12, color: TD }}>{gpsMsg}</p>}
+        </div>
+      </Card>
+
+      <Card radius={22} style={{ padding: 20 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>Maintenance</span>
+        <p style={{ margin: '6px 0 16px', fontSize: 12, fontWeight: 500, color: TD, lineHeight: 1.5 }}>
+          Recompute home-charge energy from stored snapshots and fix the cost. Run this if a session shows an impossible
+          kWh figure. Supercharger and imported charges are left untouched.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={runRepair}
+            disabled={repairState.busy}
+            style={{ fontSize: 13, fontWeight: 600, color: TX, background: 'var(--track,#f0f0f3)', border: '1px solid var(--border,rgba(0,0,0,0.07))', borderRadius: 30, padding: '9px 16px', cursor: repairState.busy ? 'default' : 'pointer', opacity: repairState.busy ? 0.6 : 1 }}
+          >
+            {repairState.busy ? 'Repairing…' : 'Repair charge energy'}
+          </button>
+          {repairState.text && <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>{repairState.text}</span>}
         </div>
       </Card>
 
