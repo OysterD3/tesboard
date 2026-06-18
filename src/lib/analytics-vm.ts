@@ -202,6 +202,45 @@ export function binConsumptionByTemp(points: ConsumptionPoint[], binC = 5): Cons
     .sort((a, b) => a.tempC - b.tempC)
 }
 
+export interface SpeedConsumptionPoint {
+  speedMph: number
+  whPerMi: number
+}
+export interface SpeedConsumptionBin {
+  speedMph: number // bucket lower edge (mph)
+  avgWhPerMi: number
+  count: number
+}
+
+/**
+ * Bin consumption-vs-speed points into `binMph`-wide buckets keyed by the
+ * bucket's lower edge (0–10 mph → 0, 10–20 → 10, …). We bin on a drive's
+ * AVERAGE speed (distance ÷ moving time), not its top speed: average tracks the
+ * stop-and-go vs cruising character that actually drives Wh/mi, whereas a single
+ * highway blip wouldn't characterise a city crawl. The server fn derives the
+ * per-drive average speed and supplies the points.
+ */
+export function binConsumptionBySpeed(
+  points: SpeedConsumptionPoint[],
+  binMph = 10,
+): SpeedConsumptionBin[] {
+  const valid = points.filter(
+    (p) =>
+      Number.isFinite(p.speedMph) && p.speedMph >= 0 && Number.isFinite(p.whPerMi) && p.whPerMi > 0,
+  )
+  const buckets = new Map<number, { sum: number; count: number }>()
+  for (const p of valid) {
+    const edge = Math.floor(p.speedMph / binMph) * binMph
+    const b = buckets.get(edge) ?? { sum: 0, count: 0 }
+    b.sum += p.whPerMi
+    b.count++
+    buckets.set(edge, b)
+  }
+  return [...buckets.entries()]
+    .map(([speedMph, b]) => ({ speedMph, avgWhPerMi: b.sum / b.count, count: b.count }))
+    .sort((a, b) => a.speedMph - b.speedMph)
+}
+
 export type MileagePeriod = 'day' | 'week' | 'month' | 'year'
 export interface MileageRow {
   started_at: string
@@ -425,6 +464,34 @@ export function sumChargeEnergyAdded(energies: number[]): number | null {
     prev = e
   }
   return total + segPeak
+}
+
+export interface ChargeCycleResult {
+  /** Equivalent full cycles (lifetime energy ÷ pack capacity); null if no pack. */
+  cycles: number | null
+  /** Lifetime energy added to the battery across all charges (kWh). */
+  energyTotalKwh: number | null
+}
+
+/**
+ * Equivalent full charge cycles = total energy added to the pack across every
+ * charge ÷ usable pack capacity. A "cycle" is energy-equivalent (one pack's
+ * worth of charge), not a plug-in count — ten 10% top-ups make one cycle, which
+ * is the wear-relevant figure. Each input is one charge session's *own* total
+ * `energy_added_kwh` (already reset-resolved at sessionization), so this is a
+ * plain sum — NOT sumChargeEnergyAdded, which banks peaks within a single
+ * session's monotonic snapshot stream. Cycles is null when pack capacity is
+ * unknown; the energy total is still returned so the UI can show lifetime kWh.
+ */
+export function buildChargeCycleCount(
+  energiesPerCharge: number[],
+  packKwh: number | null,
+): ChargeCycleResult {
+  const vals = energiesPerCharge.filter((e) => Number.isFinite(e) && e > 0)
+  if (!vals.length) return { cycles: null, energyTotalKwh: null }
+  const energyTotalKwh = vals.reduce((a, b) => a + b, 0)
+  if (packKwh == null || !(packKwh > 0)) return { cycles: null, energyTotalKwh }
+  return { cycles: energyTotalKwh / packKwh, energyTotalKwh }
 }
 
 /**

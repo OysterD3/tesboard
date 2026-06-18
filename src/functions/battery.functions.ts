@@ -11,6 +11,7 @@ import { chargeSession, driveSession, vehicle } from '../server/schema'
 import {
   buildBatteryHealth,
   buildBatteryReadings,
+  buildChargeCycleCount,
   projectedRangeMi,
   recentMean,
   type BatteryReading,
@@ -38,6 +39,12 @@ export interface BatteryHealthResult {
   readings: BatteryReading[]
   /** Capacity-only series kept for the compact analytics sparkline. */
   series: CapacityPoint[]
+  /** Usable pack capacity (kWh) — the cycle-count denominator; null if unset. */
+  packKwh: number | null
+  /** Equivalent full charge cycles (lifetime energy ÷ pack); null without pack. */
+  chargeCycleCount: number | null
+  /** Lifetime energy added to the battery across all charges (kWh). */
+  totalChargeEnergyKwh: number | null
 }
 
 export const getBatteryHealth = createServerFn({ method: 'GET' })
@@ -54,11 +61,31 @@ export async function getBatteryHealthCore(
 ): Promise<BatteryHealthResult> {
   const vin = data?.vin
   const [veh] = await db
-    .select({ eff: vehicle.efficiency_wh_per_mi })
+    .select({ eff: vehicle.efficiency_wh_per_mi, pack: vehicle.pack_kwh })
     .from(vehicle)
     .where(and(eq(vehicle.user_id, userId), vin ? eq(vehicle.vin, vin) : undefined))
     .limit(1)
   const eff = veh?.eff ?? null
+  const pack = veh?.pack ?? null
+
+  // Lifetime charge energy for the cycle count: ALL charges with energy added
+  // (not just the >5 kWh capacity-grade ones below — small top-ups still wear
+  // the pack). Each row is one session's reset-resolved total → plain sum.
+  const energyRows = await db
+    .select({ e: chargeSession.energy_added_kwh })
+    .from(chargeSession)
+    .where(
+      and(
+        eq(chargeSession.user_id, userId),
+        vin ? eq(chargeSession.vin, vin) : undefined,
+        isNotNull(chargeSession.energy_added_kwh),
+        gt(chargeSession.energy_added_kwh, 0),
+      ),
+    )
+  const cycle = buildChargeCycleCount(
+    energyRows.map((r) => r.e).filter((e): e is number => e != null),
+    pack,
+  )
 
   const chargeRows = await db
     .select({
@@ -131,5 +158,8 @@ export async function getBatteryHealthCore(
     maxRangeBestMi,
     readings,
     series: health.series,
+    packKwh: pack,
+    chargeCycleCount: cycle.cycles,
+    totalChargeEnergyKwh: cycle.energyTotalKwh,
   }
 }

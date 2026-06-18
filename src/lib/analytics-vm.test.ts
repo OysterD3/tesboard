@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  binConsumptionBySpeed,
   binConsumptionByTemp,
   bucketMileage,
   buildBatteryHealth,
   buildBatteryReadings,
+  buildChargeCycleCount,
   buildPhantomCauses,
   buildPhantomDrain,
   capacityKwh,
@@ -174,6 +176,52 @@ describe('binConsumptionByTemp', () => {
     expect(cold?.avgWhPerMi).toBeCloseTo(310, 6)
     expect(cold?.count).toBe(2)
     expect(bins.find((b) => b.tempC === 20)?.avgWhPerMi).toBe(240)
+  })
+})
+
+describe('binConsumptionBySpeed', () => {
+  it('bins points by average speed (lower-edge buckets) and averages Wh/mi', () => {
+    const bins = binConsumptionBySpeed(
+      [
+        { speedMph: 3, whPerMi: 360 }, // 0–10 bucket
+        { speedMph: 8, whPerMi: 340 }, // 0–10 bucket
+        { speedMph: 65, whPerMi: 250 }, // 60–70 bucket
+      ],
+      10,
+    )
+    const city = bins.find((b) => b.speedMph === 0)
+    expect(city?.avgWhPerMi).toBeCloseTo(350, 6)
+    expect(city?.count).toBe(2)
+    expect(bins.find((b) => b.speedMph === 60)?.avgWhPerMi).toBe(250)
+    // sorted ascending by bucket edge
+    expect(bins.map((b) => b.speedMph)).toEqual([0, 60])
+  })
+  it('drops non-positive consumption and non-finite speeds', () => {
+    const bins = binConsumptionBySpeed([
+      { speedMph: 30, whPerMi: 0 },
+      { speedMph: NaN, whPerMi: 250 },
+      { speedMph: 35, whPerMi: 240 },
+    ])
+    expect(bins).toEqual([{ speedMph: 30, avgWhPerMi: 240, count: 1 }])
+  })
+})
+
+describe('buildChargeCycleCount', () => {
+  it('sums per-charge energy and divides by pack capacity', () => {
+    // 40 + 80 + 60 = 180 kWh ÷ 75 kWh pack → 2.4 equivalent cycles.
+    const r = buildChargeCycleCount([40, 80, 60], 75)
+    expect(r.energyTotalKwh).toBeCloseTo(180, 6)
+    expect(r.cycles).toBeCloseTo(2.4, 6)
+  })
+  it('returns energy but null cycles when pack capacity is unknown', () => {
+    const r = buildChargeCycleCount([40, 80, 60], null)
+    expect(r.energyTotalKwh).toBeCloseTo(180, 6)
+    expect(r.cycles).toBeNull()
+    expect(buildChargeCycleCount([10], 0).cycles).toBeNull()
+  })
+  it('ignores non-positive/non-finite energies and returns null when empty', () => {
+    expect(buildChargeCycleCount([0, -5, NaN], 75)).toEqual({ cycles: null, energyTotalKwh: null })
+    expect(buildChargeCycleCount([], 75)).toEqual({ cycles: null, energyTotalKwh: null })
   })
 })
 

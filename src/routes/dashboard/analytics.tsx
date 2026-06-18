@@ -2,7 +2,17 @@ import { Link, createFileRoute, getRouteApi } from '@tanstack/react-router'
 import { Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON } from '../../components/dashboard/theme'
-import { distUnit, effFromWhKm, effSuffix, fmtDist, fmtTemp, tempUnit } from '../../lib/units'
+import {
+  distUnit,
+  effFromWhKm,
+  effSuffix,
+  fmtDist,
+  fmtSpeed,
+  fmtTemp,
+  speedUnit,
+  tempUnit,
+  type Units,
+} from '../../lib/units'
 import { useDisplayTz } from '../../lib/use-hydrated'
 
 export const Route = createFileRoute('/dashboard/analytics')({ component: AnalyticsPage })
@@ -12,6 +22,11 @@ const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const MI_TO_KM = 1.609344
 const round1 = (n: number) => Math.round(n * 10) / 10
+
+/** Label a speed bucket (lower edge, mph) as a display-unit range, e.g. "30–40". */
+function speedBinLabel(u: Units, lowerMph: number, binMph = 10): string {
+  return `${fmtSpeed(u, lowerMph * MI_TO_KM)}–${fmtSpeed(u, (lowerMph + binMph) * MI_TO_KM)}`
+}
 
 function fmtDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -80,6 +95,44 @@ function AnalyticsPage() {
         />
       )}
 
+      {/* ── Charge cycles ───────────────────────────────────────────── */}
+      {battery.totalChargeEnergyKwh != null && (
+        <Card radius={22} style={{ padding: 20 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Charge cycles</span>
+          {battery.chargeCycleCount != null ? (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 8 }}>
+              <span style={{ fontSize: 46, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.04em', color: TX }}>
+                {round1(battery.chargeCycleCount)}
+              </span>
+              <span style={{ fontSize: 17, fontWeight: 600, color: TD }}>equivalent full cycles</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 8 }}>
+              <span style={{ fontSize: 46, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.04em', color: TX }}>
+                {Math.round(battery.totalChargeEnergyKwh).toLocaleString('en-US')}
+              </span>
+              <span style={{ fontSize: 17, fontWeight: 600, color: TD }}>kWh added</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 24, marginTop: 16, flexWrap: 'wrap' }}>
+            <Mini
+              value={`${Math.round(battery.totalChargeEnergyKwh).toLocaleString('en-US')} kWh`}
+              label="Lifetime energy added"
+            />
+            <Mini
+              value={battery.packKwh != null ? `${round1(battery.packKwh)} kWh` : 'Not set'}
+              label="Pack capacity"
+            />
+          </div>
+          {battery.chargeCycleCount == null && (
+            <p style={{ fontSize: 11.5, fontWeight: 500, color: TD, margin: '12px 0 0', lineHeight: 1.4 }}>
+              Set this vehicle’s pack capacity to see equivalent full cycles — one full pack’s worth
+              of energy is one cycle.
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* ── Efficiency vs temperature ───────────────────────────────── */}
       {efficiency.bins.length > 0 ? (
         <Card radius={22} style={{ padding: 20 }}>
@@ -101,6 +154,31 @@ function AnalyticsPage() {
         </Card>
       ) : (
         <EmptyCard title="No efficiency-vs-temp data yet" body="Built from each drive's Wh/mi and its average outside temperature." />
+      )}
+
+      {/* ── Efficiency vs average speed ─────────────────────────────── */}
+      {efficiency.speedBins.length > 0 ? (
+        <Card radius={22} style={{ padding: 20 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>
+            Efficiency vs avg speed ({speedUnit(u)})
+          </span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, margin: '8px 0 14px' }}>
+            <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>
+              {efficiency.speedAvgWhPerMi != null ? effFromWhKm(u, efficiency.speedAvgWhPerMi / MI_TO_KM) : '—'}
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: TD }}>{effSuffix(u)} avg · {efficiency.speedSampleCount} drives</span>
+          </div>
+          <BinBars
+            bins={efficiency.speedBins.map((b) => ({
+              label: speedBinLabel(u, b.speedMph),
+              value: effFromWhKm(u, b.avgWhPerMi / MI_TO_KM),
+              count: b.count,
+            }))}
+            color={accent}
+          />
+        </Card>
+      ) : (
+        <EmptyCard title="No efficiency-vs-speed data yet" body="Built from each drive's Wh/mi and its average speed (distance ÷ moving time)." />
       )}
 
       {/* ── Mileage ─────────────────────────────────────────────────── */}
