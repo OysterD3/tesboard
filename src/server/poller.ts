@@ -9,8 +9,9 @@
  * Runs under the Drizzle owner connection, so every write sets user_id and every
  * read is scoped by user_id explicitly (app-enforced row ownership).
  */
-import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, isNull, lt, lte } from 'drizzle-orm'
 import { withDb, type Db } from './db'
+import { serverEnv } from './env'
 import {
   anomalyFlag,
   chargeSession,
@@ -28,8 +29,10 @@ import {
   createTeslaClient,
   getVehicleData,
   listVehicles,
+  type ClientCtx,
 } from './tesla/client.server'
-import type { TeslaDriveState, TeslaVehicleData } from './tesla/types'
+import type { TeslaDriveState, TeslaVehicleData, TeslaVehicleListItem } from './tesla/types'
+import type { PollMode } from '../lib/burst-vm'
 import type { AnomalyCandidate } from './anomaly'
 import { detectEfficiencyDrop, detectSlowCharge } from './anomaly'
 import { classifyChargeLocation, findGeofence } from './geo'
@@ -63,73 +66,180 @@ export interface PollSummary {
   errors: string[]
 }
 
-export async function runPollCycle(): Promise<PollSummary> {
+/** A vehicle the cron wants the burst Durable Object to (re-)arm. */
+export interface ArmTarget {
+  userId: string
+  vin: string
+}
+
+export type PollCycleResult = PollSummary & { armVins: ArmTarget[] }
+
+export function emptyPollSummary(): PollSummary {
+  return { users: 0, vehiclesPolled: 0, snapshots: 0, asleep: 0, errors: [] }
+}
+
+/**
+ * One baseline poll cycle (the cron). When burst polling is ON, the cron stays
+ * the baseline + watchdog: it polls each online vehicle once (deferring session
+ * CLOSE to the Durable Object so dense polling can't split sessions), and returns
+ * the VINs that are active (or have an open session) for the worker to arm/re-arm
+ * the per-VIN DO. When burst is OFF this behaves exactly as it always has —
+ * closing sessions inline, no DO involved, `armVins` empty.
+ */
+export async function runPollCycle(): Promise<PollCycleResult> {
+  const burstEnabled = serverEnv.burstPoll().enabled
   return withDb(async (db) => {
-  const summary: PollSummary = { users: 0, vehiclesPolled: 0, snapshots: 0, asleep: 0, errors: [] }
+    const summary = emptyPollSummary()
+    const armVins: ArmTarget[] = []
 
-  const accounts = await db
-    .select({ user_id: teslaAccount.user_id })
-    .from(teslaAccount)
+    const accounts = await db.select({ user_id: teslaAccount.user_id }).from(teslaAccount)
 
-  for (const acct of accounts) {
-    summary.users++
-    try {
-      await pollUser(db, acct.user_id, summary)
-    } catch (e) {
-      summary.errors.push(`user ${acct.user_id}: ${(e as Error).message}`)
+    for (const acct of accounts) {
+      summary.users++
+      try {
+        await pollUser(db, acct.user_id, summary, burstEnabled, armVins)
+      } catch (e) {
+        summary.errors.push(`user ${acct.user_id}: ${(e as Error).message}`)
+      }
     }
-  }
-  return summary
+    return { ...summary, armVins }
   })
 }
 
-async function pollUser(db: Db, userId: string, summary: PollSummary): Promise<void> {
+async function pollUser(
+  db: Db,
+  userId: string,
+  summary: PollSummary,
+  burstEnabled: boolean,
+  armVins: ArmTarget[],
+): Promise<void> {
   const ctx = await createTeslaClient(db, userId)
   const vehicles = await listVehicles(ctx)
 
   for (const v of vehicles) {
-    await reapStaleSessions(db, userId, v.vin, summary)
-
-    try {
-      await db
-        .update(vehicle)
-        .set({ last_state: v.state, updated_at: new Date().toISOString() })
-        .where(and(eq(vehicle.vin, v.vin), eq(vehicle.user_id, userId)))
-    } catch (e) {
-      summary.errors.push(`vehicle ${v.vin}: ${(e as Error).message}`)
-    }
-
-    // State-interval history (online/asleep/offline) — runs for every vehicle,
-    // even sleeping ones (that's the point: a sleep timeline + drain attribution).
-    await recordStateTransition(db, userId, v.vin, v.state, summary)
-
-    if (v.state !== 'online') {
-      summary.asleep++
-      continue // back off — do NOT wake the car
-    }
-
-    const data = await getVehicleData(ctx, String(v.id))
-    if (data === ASLEEP) {
-      summary.asleep++
+    if (burstEnabled) {
+      // Burst ON: the per-VIN DO is the SOLE writer of vehicle_data + sessions for
+      // an online car — one writer, so the cron can't re-open a session the DO just
+      // closed (no split). The cron keeps the cheap, sleep-safe bookkeeping for
+      // EVERY car (state timeline + the 6h stale-session reaper) and arms the DO for
+      // online ones; sleeping/offline cars never get a DO (and don't need one).
+      await reapStaleSessions(db, userId, v.vin, summary)
+      if (v.state === 'online') {
+        armVins.push({ userId, vin: v.vin })
+      } else {
+        await setLastState(db, userId, v.vin, v.state, summary)
+        await recordStateTransition(db, userId, v.vin, v.state, summary)
+        summary.asleep++
+      }
       continue
     }
 
-    // Firmware version history (best-effort; never abort the cycle).
-    await recordSoftwareUpdate(db, userId, v.vin, data.vehicle_state?.car_version ?? null, summary)
-
-    const recordedAt = new Date().toISOString()
-    const snapErr = await insertSnapshot(db, userId, v.vin, recordedAt, data)
-    if (snapErr) {
-      // Don't sessionize from an incomplete snapshot set.
-      summary.errors.push(`snapshot ${v.vin}: ${snapErr}`)
-      continue
-    }
-    summary.snapshots++
-    summary.vehiclesPolled++
-
-    await updateChargeSession(db, userId, v.vin, recordedAt, data, summary)
-    await updateDriveSession(db, userId, v.vin, recordedAt, data, summary)
+    // Burst OFF: unchanged — the cron polls + sessionizes inline, closing on the
+    // first not-active reading.
+    await pollVehicleStep(db, userId, ctx, v, summary, /* debounceClose */ false)
   }
+}
+
+/** Update the cached last_state (best-effort; an error here never aborts a poll). */
+async function setLastState(
+  db: Db,
+  userId: string,
+  vin: string,
+  state: string,
+  summary: PollSummary,
+): Promise<void> {
+  try {
+    await db
+      .update(vehicle)
+      .set({ last_state: state, updated_at: new Date().toISOString() })
+      .where(and(eq(vehicle.vin, vin), eq(vehicle.user_id, userId)))
+  } catch (e) {
+    summary.errors.push(`vehicle ${vin}: ${(e as Error).message}`)
+  }
+}
+
+/**
+ * Poll ONE vehicle once: reap stale sessions, track state, and (if online) read
+ * vehicle_data, append a snapshot, and update its open drive/charge sessions.
+ * Returns the poll outcome so the burst loop can decide its next move. Used by the
+ * baseline cron (`debounceClose=false`, burst OFF) and by the per-VIN Durable
+ * Object (`debounceClose=true` — at the tight cadence a session closes only after
+ * two consecutive inactive readings, so a transient blip can't split it). When
+ * burst is ON the cron does NOT call this for online cars — the DO is the sole
+ * vehicle_data + session writer (see pollUser).
+ */
+export async function pollVehicleStep(
+  db: Db,
+  userId: string,
+  ctx: ClientCtx,
+  v: TeslaVehicleListItem,
+  summary: PollSummary,
+  debounceClose: boolean,
+): Promise<PollMode> {
+  await reapStaleSessions(db, userId, v.vin, summary)
+  await setLastState(db, userId, v.vin, v.state, summary)
+
+  // State-interval history (online/asleep/offline) — runs for every vehicle,
+  // even sleeping ones (that's the point: a sleep timeline + drain attribution).
+  await recordStateTransition(db, userId, v.vin, v.state, summary)
+
+  if (v.state !== 'online') {
+    summary.asleep++
+    return v.state === 'asleep' ? 'asleep' : 'offline' // back off — do NOT wake the car
+  }
+
+  const data = await getVehicleData(ctx, String(v.id))
+  if (data === ASLEEP) {
+    summary.asleep++
+    return 'asleep'
+  }
+
+  // Firmware version history (best-effort; never abort the cycle).
+  await recordSoftwareUpdate(db, userId, v.vin, data.vehicle_state?.car_version ?? null, summary)
+
+  const recordedAt = new Date().toISOString()
+  const snapErr = await insertSnapshot(db, userId, v.vin, recordedAt, data)
+  if (snapErr) {
+    // Don't sessionize from an incomplete snapshot set.
+    summary.errors.push(`snapshot ${v.vin}: ${snapErr}`)
+    return 'error'
+  }
+  summary.snapshots++
+  summary.vehiclesPolled++
+
+  await updateChargeSession(db, userId, v.vin, recordedAt, data, summary, debounceClose)
+  await updateDriveSession(db, userId, v.vin, recordedAt, data, summary, debounceClose)
+
+  const ds = data.drive_state ?? {}
+  const cs = data.charge_state ?? {}
+  const driving = ds.shift_state === 'D' || ds.shift_state === 'R' || ds.shift_state === 'N'
+  if (driving) return 'driving'
+  if (cs.charging_state === 'Charging') return 'charging'
+  return 'idle'
+}
+
+/**
+ * Close any open drive/charge session for a vehicle, now. The burst Durable
+ * Object calls this when it has confirmed (past hysteresis) the car is no longer
+ * driving/charging, since it polls with deferClose=true and never closes inline.
+ */
+export async function closeOpenSessions(
+  db: Db,
+  userId: string,
+  vin: string,
+  endedAt?: string,
+): Promise<void> {
+  const summary = emptyPollSummary()
+  // Default the close time to the LAST snapshot's recorded_at, not a fresh "now":
+  // with hysteresis the close lands a couple polls after the car parked, and a
+  // "now" that fell before the last snapshot under cross-isolate clock skew would
+  // drop that snapshot from the aggregate window (losing end odometer/range/SOC).
+  // Mirrors reapStaleSessions.
+  const end = endedAt ?? (await lastSnapshotTime(db, vin, userId)) ?? new Date().toISOString()
+  const openCharge = await openSession(db, chargeSession, vin, userId)
+  if (openCharge) await closeChargeSession(db, userId, vin, openCharge, end, summary)
+  const openDrive = await openSession(db, driveSession, vin, userId)
+  if (openDrive) await closeDriveSession(db, userId, vin, openDrive, end, summary)
 }
 
 // Plausible range for a real reading time (2015-01-01 .. 2100-01-01), in ms.
@@ -249,6 +359,7 @@ async function updateChargeSession(
   recordedAt: string,
   data: TeslaVehicleData,
   summary: PollSummary,
+  debounceClose = false,
 ): Promise<void> {
   const cs = data.charge_state ?? {}
   const ds = data.drive_state ?? {}
@@ -290,6 +401,13 @@ async function updateChargeSession(
     return
   }
   if (!isCharging && open) {
+    // Debounce (burst path only): a single not-Charging reading at the tight cadence
+    // may be a charger blip ('Stopped'/'NoPower' that resumes) — wait for a second
+    // consecutive inactive reading. BUT if the car is now DRIVING this is a real
+    // charge→drive handoff, not a blip: close immediately so the charge doesn't
+    // overlap the about-to-open drive session.
+    const driving = ds.shift_state === 'D' || ds.shift_state === 'R' || ds.shift_state === 'N'
+    if (debounceClose && !driving && (await priorWasActive(db, vin, userId, recordedAt, 'charge'))) return
     await closeChargeSession(db, userId, vin, open, recordedAt, summary)
   }
 }
@@ -406,7 +524,9 @@ async function closeChargeSession(
         rate_applied: costR.rate_applied,
         updated_at: endedAt,
       })
-      .where(eq(chargeSession.id, open.id))
+      // Guard against a double-close (DO close racing the cron's stale reaper):
+      // only the writer that sees it still open wins; the loser updates 0 rows.
+      .where(and(eq(chargeSession.id, open.id), isNull(chargeSession.ended_at)))
   } catch (e) {
     throw new Error(`close charge session ${vin}: ${(e as Error).message}`)
   }
@@ -447,6 +567,7 @@ async function updateDriveSession(
   recordedAt: string,
   data: TeslaVehicleData,
   summary: PollSummary,
+  debounceClose = false,
 ): Promise<void> {
   const ds = data.drive_state ?? {}
   const driving = ds.shift_state === 'D' || ds.shift_state === 'R' || ds.shift_state === 'N'
@@ -472,6 +593,13 @@ async function updateDriveSession(
     return
   }
   if (!driving && open) {
+    // Debounce (burst path only): one not-driving reading at the tight cadence may
+    // be a transient shift_state glitch — wait for a second consecutive inactive
+    // reading. BUT if the car is now CHARGING this is a real drive→charge handoff,
+    // not a blip: close immediately so the drive doesn't overlap the just-opened
+    // charge session.
+    const isCharging = (data.charge_state?.charging_state ?? null) === 'Charging'
+    if (debounceClose && !isCharging && (await priorWasActive(db, vin, userId, recordedAt, 'drive'))) return
     await closeDriveSession(db, userId, vin, open, recordedAt, summary)
   }
 }
@@ -573,7 +701,9 @@ async function closeDriveSession(
         inside_temp_avg: agg.avgInsideTemp,
         speed_max_mph: agg.maxSpeed != null ? Math.round(agg.maxSpeed) : null,
       })
-      .where(eq(driveSession.id, open.id))
+      // Guard against a double-close (DO close racing the cron's stale reaper):
+      // only the writer that sees it still open wins; the loser updates 0 rows.
+      .where(and(eq(driveSession.id, open.id), isNull(driveSession.ended_at)))
   } catch (e) {
     throw new Error(`close drive session ${vin}: ${(e as Error).message}`)
   }
@@ -635,6 +765,38 @@ async function openSession(
     .orderBy(desc(table.started_at))
     .limit(1)
   return rows[0] ?? null
+}
+
+/**
+ * Was the snapshot immediately BEFORE `beforeISO` still active for `kind`
+ * (driving / charging)? Drives the burst-path close debounce: we only close a
+ * session once inactivity is confirmed across two consecutive readings, so a
+ * transient shift_state / charging_state blip at the ~20s cadence can't split one
+ * session into many. No prior snapshot → treat as not-active (allow the close).
+ */
+async function priorWasActive(
+  db: Db,
+  vin: string,
+  userId: string,
+  beforeISO: string,
+  kind: 'drive' | 'charge',
+): Promise<boolean> {
+  const [p] = await db
+    .select({ shift: vehicleSnapshot.shift_state, charging: vehicleSnapshot.charging_state })
+    .from(vehicleSnapshot)
+    .where(
+      and(
+        eq(vehicleSnapshot.vin, vin),
+        eq(vehicleSnapshot.user_id, userId),
+        lt(vehicleSnapshot.recorded_at, beforeISO),
+      ),
+    )
+    .orderBy(desc(vehicleSnapshot.recorded_at))
+    .limit(1)
+  if (!p) return false
+  return kind === 'drive'
+    ? p.shift === 'D' || p.shift === 'R' || p.shift === 'N'
+    : p.charging === 'Charging'
 }
 
 async function aggregateSnapshots(

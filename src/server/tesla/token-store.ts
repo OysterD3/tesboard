@@ -125,8 +125,14 @@ async function doRefresh(db: Db, userId: string, stored: StoredToken): Promise<s
   const expiresAt = new Date(Date.now() + refreshed.expires_in * 1000)
 
   // Compare-and-swap: only the writer holding the ciphertext we refreshed from
-  // wins. A loser (another process already rotated) updates 0 rows; we then
-  // re-read and return the freshly stored access token.
+  // wins. A loser (another writer already rotated) updates 0 rows; we then re-read
+  // and return the freshly stored access token.
+  //
+  // IMPORTANT: this CAS is the ONLY defense against concurrent refreshes from two
+  // SEPARATE ISOLATES — the cron poll Worker and a per-VIN VehiclePoller Durable
+  // Object can both hit this at once, and the in-process single-flight above only
+  // collapses callers WITHIN one isolate (no shared memory across isolates). Do not
+  // remove or weaken this CAS without an equivalent cross-isolate guard.
   const updated = await db
     .update(teslaToken)
     .set({

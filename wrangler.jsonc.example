@@ -41,6 +41,14 @@
     }
   ],
 
+  // Per-VIN "active-burst" poller (src/server/vehicle-poller.ts): polls every
+  // ~20-30s while a car is driving/charging (cron floors at 1 min). OFF by default
+  // via the BURST_POLL var below; the binding + migration are harmless when unused.
+  "durable_objects": {
+    "bindings": [{ "name": "POLLER", "class_name": "VehiclePoller" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["VehiclePoller"] }],
+
   // Non-secret runtime vars (safe to commit). Fill these in for your deployment.
   // Set SECRETS separately with `wrangler secret put <NAME>` (see README / AGENTS.md):
   //   TESLA_CLIENT_SECRET, TOKEN_ENCRYPTION_KEY, CRON_TRIGGER_SECRET, SESSION_SECRET,
@@ -58,6 +66,12 @@
     "SUPABASE_URL": "https://<YOUR_SUPABASE_REF>.supabase.co",
     // Anon key is RLS-gated and safe to ship to the browser. Get it from
     // Supabase → Project Settings → API.
-    "SUPABASE_ANON_KEY": "<YOUR_SUPABASE_ANON_KEY>"
+    "SUPABASE_ANON_KEY": "<YOUR_SUPABASE_ANON_KEY>",
+
+    // Adaptive burst polling. "off" = cron-only (today's behaviour). "on" enables
+    // ~20s/30s polling while driving/charging via the POLLER Durable Object above.
+    "BURST_POLL": "off",
+    "BURST_POLL_DRIVE_S": "20",
+    "BURST_POLL_CHARGE_S": "30"
   }
 }

@@ -54,3 +54,10 @@ TESLA_FLEET_BASE_URL=https://fleet-api.prd.na.vn.cloud.tesla.com
 TESLA_OAUTH_AUDIENCE=https://fleet-api.prd.na.vn.cloud.tesla.com
 SUPABASE_URL=https://YOUR_SUPABASE_REF.supabase.co
 SUPABASE_ANON_KEY=
+
+# --- Adaptive burst polling (optional) ---
+# "off" (default) = cron-only, exactly today's behaviour. "on" enables ~20s/30s
+# polling while driving/charging via the per-VIN VehiclePoller Durable Object.
+BURST_POLL=off
+BURST_POLL_DRIVE_S=20
+BURST_POLL_CHARGE_S=30

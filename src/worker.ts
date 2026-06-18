@@ -4,10 +4,19 @@
  * Serves the TanStack Start app (fetch) AND runs the poller on native Cloudflare
  * Cron Triggers (scheduled) — no external scheduler needed. The cron schedules
  * are declared in wrangler.jsonc under `triggers.crons`.
+ *
+ * When BURST_POLL is enabled, the poll cron is also the watchdog for the per-VIN
+ * VehiclePoller Durable Object: it returns the VINs that are actively driving/
+ * charging and we arm/re-arm their DO (which then tight-polls ~20–30s). When the
+ * flag is off, runPollCycle returns no armVins and this is a plain cron poller.
  */
 import startEntry from '@tanstack/react-start/server-entry'
 import { runPollCycle } from './server/poller'
 import { reconcileAllUsers } from './server/reconcile'
+import { bridgeEnv } from './server/env-bridge'
+
+// Durable Object class must be exported from the worker's main module.
+export { VehiclePoller } from './server/vehicle-poller'
 
 /** Must match a schedule in wrangler.jsonc; this one runs reconciliation. */
 const RECONCILE_CRON = '0 * * * *' // hourly
@@ -21,24 +30,10 @@ interface ExecutionContext {
   passThroughOnException(): void
 }
 
-/**
- * Bridge Worker bindings into process.env so our server-only env reads (env.ts,
- * db.ts) resolve.
- *  - String vars/secrets → process.env[k]. A request context usually auto-
- *    populates these under nodejs_compat, but the scheduled context does not, so
- *    we always do it here.
- *  - The Hyperdrive binding is an OBJECT (never auto-bridged). Drizzle reaches
- *    Postgres through it: expose its connectionString as DATABASE_URL. (Raw
- *    postgres-js TCP straight to Supabase HANGS in workerd — Hyperdrive provides
- *    a connection the runtime can actually use, in dev and prod.)
- */
-function bridgeEnv(env: Record<string, unknown>): void {
-  if (typeof process === 'undefined' || !process.env) return
-  for (const [k, v] of Object.entries(env)) {
-    if (typeof v === 'string') process.env[k] = v
-  }
-  const hyperdrive = env.HYPERDRIVE as { connectionString?: string } | undefined
-  if (hyperdrive?.connectionString) process.env.DATABASE_URL = hyperdrive.connectionString
+/** Minimal shape of the per-VIN burst DO namespace (see vehicle-poller.ts). */
+interface BurstNamespace {
+  idFromName(name: string): unknown
+  get(id: unknown): { fetch(req: Request): Promise<Response> }
 }
 
 export default {
@@ -57,8 +52,28 @@ export default {
       (async () => {
         if (event.cron === RECONCILE_CRON) {
           await reconcileAllUsers()
-        } else {
-          await runPollCycle()
+          return
+        }
+        const result = await runPollCycle()
+        // Arm/re-arm the per-VIN burst DO for active vehicles. armVins is empty
+        // unless BURST_POLL is on, so this is a no-op in the default config.
+        const ns = env.POLLER as BurstNamespace | undefined
+        if (ns && result.armVins.length) {
+          await Promise.all(
+            result.armVins.map(async ({ userId, vin }) => {
+              try {
+                const stub = ns.get(ns.idFromName(vin))
+                await stub.fetch(
+                  new Request('https://burst/start', {
+                    method: 'POST',
+                    body: JSON.stringify({ userId, vin }),
+                  }),
+                )
+              } catch {
+                /* best-effort arm; the next cron tick retries */
+              }
+            }),
+          )
         }
       })(),
     )

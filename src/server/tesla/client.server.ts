@@ -26,7 +26,7 @@ export async function resolveBaseUrl(db: Db, userId: string): Promise<string> {
   return rows[0]?.fleet_api_base_url || process.env.TESLA_FLEET_BASE_URL || ''
 }
 
-interface ClientCtx {
+export interface ClientCtx {
   db: Db
   userId: string
   baseUrl: string

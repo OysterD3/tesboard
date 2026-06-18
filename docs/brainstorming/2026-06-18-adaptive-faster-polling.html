@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Adaptive Faster Polling — Brainstorming review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/styles/github.min.css">
+<style>
+/* ===========================================================================
+   Oyster review artifact — warm-light, premium-minimal theme.
+   One stylesheet, inlined into every generated HTML. Restrained palette,
+   characterful display serif + clean sans, a faint designed background, and
+   hand-authored SVG diagram styling (.dg-*). No dark mode, no Mermaid.
+   =========================================================================== */
+
+:root {
+  /* clean light paper + cool ink (Stripe register) */
+  --bg:          #f8fafc;
+  --bg-tint:     #eef2f8;
+  --surface:     #ffffff;
+  --surface-2:   #f4f7fb;
+  --ink:         #1a1f36;
+  --ink-soft:    #3c4257;
+  --muted:       #697386;
+  --faint:       #9aa4b6;
+  --line:        #e6ebf1;
+  --line-strong: #d4dbe6;
+
+  /* accent palette — bright, saturated, used sparingly for keyword highlighting */
+  --indigo:    #635bff;   /* Stripe blurple — primary / links / accent */
+  --indigo-bg: #eeedff;
+  --terra:     #ff5470;   /* vivid coral-pink — eyebrow / emphasis / keyword */
+  --terra-bg:  #ffe6ea;
+  --amber:     #f5a623;   /* warn / risk */
+  --amber-bg:  #fdf0d6;
+  --sage:      #10b981;   /* emerald — ok / added / picked */
+  --sage-bg:   #d6f5e9;
+  --rose:      #f43f5e;   /* danger / breaking */
+  --rose-bg:   #ffe1e7;
+  --teal:      #06b6d4;   /* cyan — info / external */
+  --teal-bg:   #d4f1fb;
+
+  --display: "Fraunces", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 1px 2px rgba(60,48,30,0.04), 0 8px 28px -16px rgba(60,48,30,0.18);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  font: 16px/1.7 var(--sans);
+  color: var(--ink);
+  background-color: var(--bg);
+  /* designed background: a soft warm glow + an ultra-faint dot grid */
+  background-image:
+    radial-gradient(900px 520px at 80% -10%, rgba(99,91,255,0.08), transparent 60%),
+    radial-gradient(720px 460px at 8% 2%, rgba(6,182,212,0.06), transparent 55%),
+    radial-gradient(rgba(105,115,134,0.10) 1px, transparent 1px);
+  background-size: auto, auto, 26px 26px;
+  background-attachment: fixed, fixed, fixed;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+main { min-width: 0; }
+.page {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 860px);
+  gap: 56px;
+  max-width: 1208px;
+  margin: 0 auto;
+  padding: 64px 40px 120px;
+}
+@media (max-width: 1199px) {
+  .page { grid-template-columns: minmax(0, 860px); justify-content: center; gap: 0; }
+  .toc-rail { display: none !important; }
+}
+
+/* ---- TOC rail ---- */
+.toc-rail {
+  position: sticky;
+  top: 32px;
+  align-self: start;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.45;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.toc-rail::-webkit-scrollbar { width: 6px; }
+.toc-rail::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+.toc-rail h4 {
+  margin: 0 0 12px;
+  font: 600 11px/1 var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+  padding-left: 15px;
+}
+.toc-rail nav ol { list-style: none; margin: 0; padding: 0; }
+.toc-rail nav li { margin: 0; }
+.toc-rail nav a {
+  display: block;
+  padding: 6px 15px;
+  color: var(--muted);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+}
+.toc-rail nav a:hover { color: var(--ink); }
+.toc-rail nav a.active {
+  color: var(--indigo);
+  border-left-color: var(--indigo);
+  font-weight: 600;
+}
+
+/* ---- header ---- */
+header { margin-bottom: 18px; position: relative; }
+.meta {
+  font: 600 12px/1 var(--sans);
+  color: var(--terra);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.meta::before {
+  content: "";
+  width: 22px; height: 2px;
+  background: var(--terra);
+  border-radius: 2px;
+}
+h1 {
+  font: 600 40px/1.12 var(--display);
+  font-optical-sizing: auto;
+  letter-spacing: -0.015em;
+  margin: 0 0 18px;
+  color: var(--ink);
+}
+/* designed hand-drawn-ish underline stroke under the title */
+h1 + .title-stroke {
+  display: block;
+  width: 132px; height: 9px;
+  margin: -6px 0 22px;
+  color: var(--terra);
+  opacity: .85;
+}
+
+.goal {
+  font: 400 18px/1.6 var(--display);
+  font-style: italic;
+  color: var(--ink-soft);
+  margin: 4px 0 0;
+  padding: 16px 22px;
+  background: linear-gradient(180deg, var(--surface), var(--surface));
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--indigo);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+/* header key/value meta table (spec status, links, etc.) */
+.header-table {
+  width: auto;
+  margin: 20px 0 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  font-size: 14px;
+  box-shadow: var(--shadow);
+}
+.header-table td { padding: 9px 16px; border-bottom: 1px solid var(--line); }
+.header-table tr:last-child td { border-bottom: none; }
+.header-table td:first-child {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font: 600 11px/1.4 var(--sans);
+}
+.status-draft    { color: var(--amber); font-weight: 600; }
+.status-approved { color: var(--sage);  font-weight: 600; }
+
+/* ---- sections ---- */
+section {
+  margin-top: 52px;
+  padding-top: 30px;
+  border-top: 1px solid var(--line);
+  scroll-margin-top: 32px;
+}
+h2 {
+  font: 600 12px/1 var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--muted);
+  margin: 0 0 20px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+h2 .anchor {
+  color: var(--faint);
+  opacity: 0;
+  text-decoration: none;
+  font-size: 14px;
+  transition: opacity .15s;
+}
+h2:hover .anchor { opacity: 1; }
+h3 { font: 600 17px/1.4 var(--sans); margin: 26px 0 8px; color: var(--ink); }
+
+ul, ol { margin: 0; padding-left: 24px; }
+li { margin: 7px 0; }
+li::marker { color: var(--faint); }
+p { margin: 12px 0; }
+strong { font-weight: 650; color: var(--ink); }
+em { font-style: italic; }
+
+a {
+  color: var(--indigo);
+  text-decoration-color: color-mix(in srgb, var(--indigo) 35%, transparent);
+  text-underline-offset: 2px;
+}
+a:hover { text-decoration-color: var(--indigo); }
+
+/* keyword highlight — special display serif + accent. Authored as
+   <em class="kw">term</em> (or kw-terra / kw-sage / kw-indigo / kw-amber). */
+.kw, em.kw {
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 500;
+  color: var(--terra);
+  padding: 0 1px;
+}
+.kw-indigo { color: var(--indigo); }
+.kw-sage   { color: var(--sage); }
+.kw-amber  { color: var(--amber); }
+.kw-teal   { color: var(--teal); }
+/* highlighter swipe for a key phrase: <mark> */
+mark {
+  background: linear-gradient(180deg, transparent 58%, var(--amber-bg) 58%);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 1px;
+}
+
+code, .file {
+  font: 500 13.5px/1.5 var(--mono);
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--terra);
+}
+
+.risks li { color: var(--amber); }
+.risks li::marker { color: var(--amber); }
+
+/* ---- tables ---- */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 14.5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  margin: 6px 0;
+}
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th {
+  font: 600 11px/1.4 var(--sans);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  background: var(--surface-2);
+}
+tr:last-child td { border-bottom: none; }
+table.approaches tr.picked td { background: var(--sage-bg); }
+table.approaches tr.picked td:first-child { box-shadow: inset 3px 0 0 var(--sage); font-weight: 650; }
+
+/* ---- diagrams (hand-authored SVG from the deterministic engine) ---- */
+figure.diagram {
+  position: relative;
+  margin: 22px 0;
+  padding: 22px;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    repeating-linear-gradient(0deg, var(--line) 0 1px, transparent 1px 24px) padding-box;
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  text-align: center;
+  overflow-x: auto;
+}
+figure.diagram svg.dg { max-width: 100%; height: auto; }
+figure.diagram figcaption {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+/* clickable vectors (nodes/edges that carry a detail) */
+svg.dg .dg-clickable { cursor: pointer; }
+svg.dg .dg-clickable:focus { outline: none; }
+svg.dg .dg-nodeg.dg-clickable:hover .dg-node,
+svg.dg .dg-nodeg.dg-clickable:focus-visible .dg-node { stroke-width: 2.2; filter: brightness(0.99); }
+svg.dg .dg-edgeg.dg-clickable:hover .dg-edge,
+svg.dg .dg-edgeg.dg-clickable:focus-visible .dg-edge { stroke: var(--indigo); stroke-width: 2.4; }
+svg.dg .dg-edge-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; }
+svg.dg .dg-detail-dot { fill: var(--indigo); stroke: var(--surface); stroke-width: 1.5; }
+svg.dg .dg-nodeg.dg-clickable:hover .dg-detail-dot { r: 4.2; }
+
+/* enlarge button */
+.dg-expand {
+  position: absolute; top: 12px; right: 12px;
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px;
+  font-size: 15px; cursor: pointer;
+  opacity: 0; transition: opacity .15s, color .15s, border-color .15s;
+  box-shadow: var(--shadow);
+}
+figure.diagram:hover .dg-expand { opacity: 1; }
+.dg-expand:hover { color: var(--indigo); border-color: var(--indigo); }
+
+/* detail popover */
+.dg-popover {
+  position: fixed; z-index: 60;
+  max-width: 320px; min-width: 140px;
+  display: none;
+  background: var(--ink); color: #fff;
+  border-radius: 10px; padding: 13px 34px 13px 15px;
+  font-size: 13.5px; line-height: 1.5;
+  box-shadow: 0 12px 40px -12px rgba(26,31,54,.55);
+  white-space: pre-wrap;
+}
+.dg-popover.open { display: block; }
+.dg-popover::after {
+  content: ""; position: absolute; bottom: 100%; left: var(--arrow-x, 50%);
+  transform: translateX(-50%);
+  border: 6px solid transparent; border-bottom-color: var(--ink);
+}
+.dg-popover.below::after { bottom: auto; top: 100%; border-bottom-color: transparent; border-top-color: var(--ink); }
+.dg-popover-close {
+  position: absolute; top: 7px; right: 8px;
+  width: 20px; height: 20px; padding: 0;
+  background: transparent; border: none; color: rgba(255,255,255,.6);
+  font-size: 17px; line-height: 1; cursor: pointer;
+}
+.dg-popover-close:hover { color: #fff; }
+svg.dg .dg-node     { fill: var(--surface); stroke: var(--ink); stroke-width: 1.5; }
+svg.dg .dg-default  { fill: var(--surface); }
+svg.dg .dg-start,
+svg.dg .dg-end      { fill: var(--bg-tint); stroke: var(--ink); }
+svg.dg .dg-decision { fill: var(--amber-bg); stroke: var(--amber); }
+svg.dg .dg-external { fill: var(--teal-bg);  stroke: var(--teal); }
+svg.dg .dg-accent   { fill: var(--indigo-bg); stroke: var(--indigo); }
+svg.dg .dg-text     { fill: var(--ink); font: 500 13px var(--sans); }
+svg.dg .dg-edge     { fill: none; stroke: var(--faint); stroke-width: 1.7; }
+svg.dg .dg-edge-dashed { stroke-dasharray: 5 4; }
+svg.dg .dg-arrowhead   { fill: var(--faint); stroke: none; }
+svg.dg .dg-label    { fill: var(--ink-soft); font: 500 11.5px var(--sans); }
+svg.dg .dg-labelbg  { fill: var(--surface); opacity: 0.94; }
+svg.dg .dg-lifeline { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 2 5; }
+
+/* diagram lightbox (click to enlarge) */
+.dg-lightbox {
+  position: fixed; inset: 0; z-index: 50;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(34,29,23,0.62);
+  backdrop-filter: blur(3px);
+  padding: 40px;
+  cursor: zoom-out;
+}
+.dg-lightbox.open { display: flex; }
+.dg-lightbox svg { max-width: 96vw; max-height: 92vh; height: auto; background: var(--surface); border-radius: var(--radius); padding: 28px; box-shadow: 0 24px 80px -20px rgba(0,0,0,.5); }
+
+/* ---- code blocks ---- */
+pre.code {
+  font: 500 13.5px/1.6 var(--mono);
+  background: var(--surface);
+  padding: 16px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  overflow-x: auto;
+  box-shadow: var(--shadow);
+}
+pre.code code, pre.code code.hljs, pre code.hljs { background: transparent; padding: 0; border: none; font: inherit; color: inherit; }
+
+/* acceptance-criteria cards (spec) */
+.ac-list { counter-reset: ac; padding-left: 0; list-style: none; }
+.ac-list li {
+  counter-increment: ac;
+  padding: 12px 14px 12px 50px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  margin: 10px 0;
+  position: relative;
+  box-shadow: var(--shadow);
+}
+.ac-list li::before {
+  content: "AC" counter(ac);
+  position: absolute; left: 14px; top: 12px;
+  font: 600 11px/1.4 var(--mono);
+  color: var(--indigo);
+  letter-spacing: 0.04em;
+}
+
+/* ---- step cards (impl-plan) ---- */
+article.step {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 20px 22px 18px;
+  margin: 16px 0;
+  scroll-margin-top: 32px;
+  box-shadow: var(--shadow);
+}
+article.step header.step-header { display: flex; align-items: center; gap: 13px; margin: 0 0 12px; }
+article.step .step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 30px; height: 30px; padding: 0 9px;
+  background: var(--indigo-bg); color: var(--indigo);
+  border: 1px solid color-mix(in srgb, var(--indigo) 25%, transparent);
+  border-radius: 8px;
+  font: 600 13px/1 var(--mono);
+}
+article.step h3 { flex: 1; margin: 0; font: 600 18px/1.3 var(--sans); letter-spacing: -0.005em; }
+article.step .step-deps {
+  font: 600 11px/1.4 var(--mono); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;
+}
+article.step .step-goal { margin: 0 0 14px; color: var(--ink-soft); font-size: 15px; }
+article.step dl.step-fields {
+  display: grid; grid-template-columns: max-content 1fr; gap: 7px 20px; margin: 0; font-size: 14.5px;
+}
+article.step dl.step-fields dt {
+  color: var(--muted); font: 600 11px/1.4 var(--sans);
+  text-transform: uppercase; letter-spacing: 0.06em; padding-top: 4px;
+}
+article.step dl.step-fields dd { margin: 0; min-width: 0; }
+article.step dl.step-fields dd ul { margin: 0; padding-left: 18px; }
+article.step dl.step-fields dd pre.code { margin: 0; }
+article.step.rollback-required { border-left: 3px solid var(--amber); }
+
+/* ---- test-entry cards (test-review) ---- */
+article.test-entry {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+  margin: 12px 0;
+  box-shadow: var(--shadow);
+}
+article.test-entry .test-type {
+  display: inline-block; font: 700 10px/1 var(--mono);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 3px 7px; border-radius: 5px; margin-right: 8px; border: 1px solid;
+}
+article.test-entry .test-type-unit        { color: var(--sage);   background: var(--sage-bg);   border-color: color-mix(in srgb, var(--sage) 40%, transparent); }
+article.test-entry .test-type-integration { color: var(--indigo); background: var(--indigo-bg); border-color: color-mix(in srgb, var(--indigo) 40%, transparent); }
+article.test-entry .test-type-e2e         { color: var(--teal);   background: var(--teal-bg);   border-color: color-mix(in srgb, var(--teal) 40%, transparent); }
+article.test-entry .test-type-security    { color: var(--rose);   background: var(--rose-bg);   border-color: color-mix(in srgb, var(--rose) 45%, transparent); }
+article.test-entry .test-type-perf        { color: var(--amber);  background: var(--amber-bg);  border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+article.test-entry .test-name { font: 600 15px/1.4 var(--sans); }
+article.test-entry .test-file { font: 500 12.5px/1.4 var(--mono); color: var(--muted); margin: 2px 0 0; }
+article.test-entry .test-intent { margin: 8px 0 0; font-size: 14.5px; color: var(--ink-soft); }
+
+/* ---- semantic pill tags ---- */
+strong.tag {
+  display: inline-block;
+  font: 700 10px/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 7px;
+  border-radius: 5px;
+  vertical-align: 1px;
+  margin-right: 6px;
+  border: 1px solid;
+}
+strong.tag-add    { color: var(--sage);   background: var(--sage-bg);  border-color: color-mix(in srgb, var(--sage) 40%, transparent); }
+strong.tag-change { color: var(--indigo); background: var(--indigo-bg); border-color: color-mix(in srgb, var(--indigo) 40%, transparent); }
+strong.tag-break  { color: var(--rose);   background: var(--rose-bg);  border-color: color-mix(in srgb, var(--rose) 45%, transparent); }
+strong.tag-warn   { color: var(--amber);  background: var(--amber-bg); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+strong.tag-fix    { color: var(--sage);   background: var(--sage-bg);  border-color: color-mix(in srgb, var(--sage) 40%, transparent); }
+
+/* ---- changelog ---- */
+.changelog-block {
+  margin: 22px 0 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  box-shadow: var(--shadow);
+}
+.changelog-block summary {
+  cursor: pointer;
+  padding: 10px 16px;
+  font: 600 11px/1.4 var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+}
+.changelog-block summary::-webkit-details-marker { display: none; }
+.changelog-block summary::before {
+  content: "\25B8"; display: inline-block; margin-right: 8px; transition: transform .15s;
+}
+.changelog-block[open] summary::before { transform: rotate(90deg); }
+.changelog-block summary:hover { color: var(--ink); }
+table.changelog { border: none; border-radius: 0; background: transparent; box-shadow: none; border-top: 1px solid var(--line); margin: 0; }
+table.changelog td { padding: 7px 16px; }
+table.changelog td:first-child {
+  white-space: nowrap; color: var(--muted); font: 500 12.5px/1.4 var(--mono); width: 1%;
+}
+
+noscript .warn {
+  display: block;
+  padding: 12px 16px;
+  background: var(--amber-bg);
+  border-left: 3px solid var(--amber);
+  color: var(--amber);
+  margin: 14px 0;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+
+/* ---- footer ---- */
+footer {
+  margin-top: 80px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+footer .next {
+  background: var(--surface);
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  box-shadow: var(--shadow);
+}
+
+@media print {
+  body { background: #fff; background-image: none; }
+  .toc-rail { display: none; }
+  .page { display: block; max-width: none; padding: 0; }
+  figure.diagram, table, pre.code, .ac-list li, .header-table, .goal, .changelog-block, footer .next { box-shadow: none; }
+  figure.diagram svg.dg { cursor: auto; }
+  section { break-inside: avoid; }
+}
+
+</style>
+</head>
+<body>
+<div class="page">
+  <aside class="toc-rail" aria-label="Table of contents">
+    <h4>Contents</h4>
+    <nav><ol id="toc-list"></ol></nav>
+  </aside>
+  <main>
+    <header>
+      <div class="meta">Brainstorming review · 2026-06-18</div>
+      <h1>Adaptive Faster Polling</h1>
+      <svg class="title-stroke" viewBox="0 0 132 9" fill="none" aria-hidden="true"><path d="M2 6.5C26 3 54 2.2 78 3.4c18 .9 36 2.4 52 1.1" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+
+      <p class="goal">Capture denser drive paths and sharper charge curves by polling every ~20–30s only while the car is actively driving or charging — without leaving the read-only, no-virtual-key, Workers + Supabase architecture.</p>
+      <details class="changelog-block" open>
+              <summary>Changelog</summary>
+              <table class="changelog"><tbody>
+                <tr><td><time>2026-06-18 19:54</time></td><td>Initial draft — folds in roast findings: session-close hysteresis, connection discipline, DB compare-and-swap as the primary token guarantee, a consecutive-failure circuit breaker, and a cost pre-flight check.</td></tr>
+              </tbody></table>
+            </details>
+      <noscript><span class="warn">This document renders fully without JavaScript. JS only adds code highlighting, the contents rail, and click-to-enlarge diagrams.</span></noscript>
+    </header>
+
+    <section id="context">
+      <h2>Context <a class="anchor" href="#context">#</a></h2>
+      <div><ul><li>Drive paths and charge curves are coarse because the poller samples every <em class="kw">2 minutes</em> — turns render polygonal and the charge ramp/taper is under-sampled.</li><li>True 500ms Fleet Telemetry was separately evaluated and rejected (it needs a paired virtual key, an always-on mTLS server, and 100–1000× the write volume). This is the read-only-friendly middle ground.</li><li>Hard constraints: stay <em class="kw">read-only</em> (no virtual key, no commands) on Cloudflare Workers + Supabase; the platform cron floors at <em class="kw">1-minute</em> granularity.</li><li>Battery safety: frequently polling an already-online <mark>parked</mark> car delays sleep → vampire drain. A sleeping car cannot be woken by a read (it returns 408), so the risk is the parked-online case, not the sleeper.</li></ul></div>
+    </section>
+
+    <section id="approaches">
+      <h2>Approaches considered <a class="anchor" href="#approaches">#</a></h2>
+      <div><table class="approaches"><thead><tr><th>Approach</th><th>Gist</th><th>Tradeoff</th><th>Status</th></tr></thead><tbody><tr class="picked"><td>Active-burst poller + cron kicker</td><td>Cron stays the baseline; on detecting drive/charge it arms a per-vehicle burst poller that tight-polls 20s/30s, then stops.</td><td>Adds a stateful component + new concurrency to reason about.</td><td>✓ Picked — smallest steady-state change, bounded cost, preserves sleep, reuses the one sessionization path.</td></tr><tr><td>Burst poller owns all polling</td><td>Move every online poll into the stateful timer; cron just keeps it alive.</td><td>Cleaner single path, but a bigger rewrite and the timer now owns idle + sleep tuning.</td><td>Rejected — more surface to get exactly right for no extra fidelity.</td></tr><tr><td>1-minute cron only</td><td>Change the schedule from 2 min to 1 min.</td><td>Trivial, no new infra, but caps at 60s.</td><td>Rejected — can't reach the 20–30s the goal needs.</td></tr><tr><td>In-invocation sleep loop</td><td>One cron tick that sleeps ~15s between polls.</td><td>—</td><td>Rejected — Workers clamp timers (they advance only after I/O), so sub-minute spacing silently fails in production.</td></tr></tbody></table></div>
+    </section>
+
+    <section id="approach">
+      <h2>Approach <a class="anchor" href="#approach">#</a></h2>
+      <div><p>The 2-minute cron stays the <em class="kw">baseline and watchdog</em>: it keeps detecting activity exactly as today. When it sees a vehicle driving or charging, it arms a <em class="kw-indigo">per-vehicle burst poller</em> that drives a self-re-arming ~20s (driving) / ~30s (charging) loop, running the <em>same</em> snapshot + sessionization step the cron already uses — so the denser samples flow straight through the existing density-agnostic aggregation. The loop re-arms before each fallible poll, debounces session close behind <em class="kw-sage">N consecutive</em> inactive reads, and stops on a clean close or a safety cap — handing idle/asleep back to the cron so the car sleeps normally. The one genuinely new failure mode — two execution contexts touching the atomically-rotating refresh token — is contained by the database <mark>compare-and-swap</mark> on the token row (the only guard that spans isolates), not by best-effort scheduling.</p><figure class="diagram"><svg class="dg" viewBox="-9 4 306 889" width="306" height="889" role="img" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"><defs><marker id="dg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-arrowhead" d="M0,0 L10,5 L0,10 z"/></marker></defs><g class="dg-edgeg"><path class="dg-edge" d="M150.5,70.0 C150.5,102.0 150.5,102.0 150.5,134.0" marker-end="url(#dg-arrow)"/></g>
+    <g class="dg-edgeg"><path class="dg-edge" d="M150.5,195.0 C150.5,227.0 150.5,227.0 150.5,259.0" marker-end="url(#dg-arrow)"/><rect class="dg-labelbg" x="134.0" y="217.5" width="33.0" height="19.0" rx="5" ry="5"/><text class="dg-label" x="150.5" y="231.0" text-anchor="middle">yes</text></g>
+    <g class="dg-edgeg"><path class="dg-edge" d="M150.5,195.0 C150.5,511.0 150.5,511.0 150.5,827.0" marker-end="url(#dg-arrow)"/><rect class="dg-labelbg" x="137.0" y="551.5" width="27.0" height="19.0" rx="5" ry="5"/><text class="dg-label" x="150.5" y="565.0" text-anchor="middle">no</text></g>
+    <g class="dg-edgeg"><path class="dg-edge" d="M150.5,301.0 C150.5,333.0 150.5,333.0 150.5,365.0" marker-end="url(#dg-arrow)"/></g>
+    <g class="dg-edgeg"><path class="dg-edge" d="M150.5,407.0 C150.5,439.0 150.5,439.0 150.5,471.0" marker-end="url(#dg-arrow)"/></g>
+    <g class="dg-edgeg"><path class="dg-edge dg-edge-dashed" d="M150.5,471.0 C104.5,439.0 104.5,439.0 150.5,407.0" marker-end="url(#dg-arrow)"/><rect class="dg-labelbg" x="99.5" y="429.5" width="33.0" height="19.0" rx="5" ry="5"/><text class="dg-label" x="116.0" y="443.0" text-anchor="middle">yes</text></g>
+    <g class="dg-edgeg"><path class="dg-edge" d="M150.5,532.0 C150.5,564.0 150.5,564.0 150.5,596.0" marker-end="url(#dg-arrow)"/><rect class="dg-labelbg" x="87.0" y="554.5" width="27.0" height="19.0" rx="5" ry="5"/><text class="dg-label" x="100.5" y="568.0" text-anchor="middle">no</text></g>
+    <g class="dg-edgeg"><path class="dg-edge dg-edge-dashed" d="M150.5,596.0 C104.5,501.5 104.5,501.5 150.5,407.0" marker-end="url(#dg-arrow)"/><rect class="dg-labelbg" x="15.0" y="492.0" width="52.0" height="19.0" rx="5" ry="5"/><text class="dg-label" x="41.0" y="505.5" text-anchor="middle">not yet</text></g>
+    <g class="dg-edgeg"><path class="dg-edge" d="M150.5,657.0 C150.5,689.0 150.5,689.0 150.5,721.0" marker-end="url(#dg-arrow)"/><rect class="dg-labelbg" x="134.0" y="679.5" width="33.0" height="19.0" rx="5" ry="5"/><text class="dg-label" x="150.5" y="693.0" text-anchor="middle">yes</text></g>
+    <g class="dg-edgeg"><path class="dg-edge" d="M150.5,763.0 C150.5,795.0 150.5,795.0 150.5,827.0" marker-end="url(#dg-arrow)"/></g>
+    <g class="dg-nodeg dg-clickable" data-detail="Runs every 2 minutes. Lists vehicles, records state, and (as today) reads vehicle data for online cars to detect activity. Unchanged from current behaviour." tabindex="0" role="button"><rect class="dg-node dg-start" x="92" y="28" width="117" height="42" rx="21" ry="21"/><text class="dg-text" x="150.5" y="53.1" text-anchor="middle">Baseline cron</text><circle class="dg-detail-dot" cx="198.0" cy="39.0" r="3.5"/></g>
+    <g class="dg-nodeg"><polygon class="dg-node dg-decision" points="150.5,134 273,164.5 150.5,195 28,164.5"/><text class="dg-text" x="150.5" y="168.6" text-anchor="middle">Driving or charging?</text></g>
+    <g class="dg-nodeg dg-clickable" data-detail="One per vehicle. Armed only via the in-Worker binding from the scheduler — never a public route." tabindex="0" role="button"><rect class="dg-node dg-default" x="80.5" y="259" width="140" height="42" rx="9" ry="9"/><text class="dg-text" x="150.5" y="284.1" text-anchor="middle">Arm burst poller</text><circle class="dg-detail-dot" cx="209.5" cy="270.0" r="3.5"/></g>
+    <g class="dg-nodeg dg-clickable" data-detail="Every 20s driving / 30s charging. Re-arms the next alarm BEFORE the fallible poll, then: read vehicle data → write snapshot → run the existing per-vehicle sessionization. Builds a fresh DB client per alarm with a tiny pool (1–2 conns), closed promptly." tabindex="0" role="button"><rect class="dg-node dg-accent" x="104" y="365" width="93" height="42" rx="9" ry="9"/><text class="dg-text" x="150.5" y="390.1" text-anchor="middle">Burst poll</text><circle class="dg-detail-dot" cx="186.0" cy="376.0" r="3.5"/></g>
+    <g class="dg-nodeg"><polygon class="dg-node dg-decision" points="150.5,471 229.5,501.5 150.5,532 71.5,501.5"/><text class="dg-text" x="150.5" y="505.6" text-anchor="middle">Still active?</text></g>
+    <g class="dg-nodeg dg-clickable" data-detail="Hysteresis: require N CONSECUTIVE not-driving-and-not-charging reads before closing. Guards against transient shift_state null / charging &#39;Stopped&#39; blips that dense 20s polling would otherwise split into many spurious sessions." tabindex="0" role="button"><polygon class="dg-node dg-decision" points="150.5,596 259.5,626.5 150.5,657 41.5,626.5"/><text class="dg-text" x="150.5" y="630.6" text-anchor="middle">Inactive N times?</text><circle class="dg-detail-dot" cx="198.5" cy="613.1" r="3.5"/></g>
+    <g class="dg-nodeg dg-clickable" data-detail="Let the existing logic close the drive/charge session, then stop re-arming. Hard caps (max poll-count + consecutive failures) also stop the loop and fall back to the cron baseline." tabindex="0" role="button"><rect class="dg-node dg-default" x="95.5" y="721" width="110" height="42" rx="9" ry="9"/><text class="dg-text" x="150.5" y="746.1" text-anchor="middle">Close + stop</text><circle class="dg-detail-dot" cx="194.5" cy="732.0" r="3.5"/></g>
+    <g class="dg-nodeg"><rect class="dg-node dg-end" x="53" y="827" width="195" height="42" rx="21" ry="21"/><text class="dg-text" x="150.5" y="852.1" text-anchor="middle">Cron baseline; car sleeps</text></g></svg><figcaption>Cron arms a per-vehicle burst poller only while active; hysteresis guards session close; idle hands back to the cron so the car sleeps.</figcaption></figure></div>
+    </section>
+
+    <section id="decisions">
+      <h2>Decisions <a class="anchor" href="#decisions">#</a></h2>
+      <div><table><thead><tr><th>Decision</th><th>Picked</th><th>Rejected</th><th>Why</th></tr></thead><tbody><tr><td>Sub-minute mechanism</td><td>Per-vehicle burst poller, self-re-arming alarm</td><td>In-tick sleep loop; sub-minute cron</td><td>Only platform-reliable way to space polls under 60s — Workers clamp timers so a sleep loop silently fails in prod, and cron floors at 1 min.</td></tr><tr><td>Burst-poller scope</td><td>Active-burst only; cron stays baseline</td><td>Burst poller owns all polling; 1-min cron only</td><td>Smallest steady-state change, bounded cost, preserves existing sleep behaviour, reuses one sessionization path.</td></tr><tr><td>Active cadence</td><td>20s driving / 30s charging</td><td>15s/20s; 30s/60s</td><td>Best detail-per-dollar — smooth GPS paths without doubling Fleet-API calls; charge curves are smooth, so 30s suffices.</td></tr><tr><td>Detection baseline</td><td>Keep the 2-minute cron</td><td>1-minute cron</td><td>Zero idle-cost / sleep regression; the ≤2-min arming lag loses at most a drive's first minute or two.</td></tr><tr><td>Burst-poller identity</td><td>One per vehicle</td><td>Per-user; singleton</td><td>Clean isolation, multi-vehicle-ready at no extra cost.</td></tr><tr><td><strong>NEW</strong> Session-close debounce</td><td>Require N consecutive inactive reads before closing</td><td>Close on the first inactive read (today's behaviour)</td><td>At 20s, transient shift-state null / charging "Stopped" blips would split one drive/charge into many, corrupting per-drive Wh/mi and the new charge-cycle sums; sparse 2-min polling masked this.</td></tr><tr><td><strong>NEW</strong> Stop + safety caps</td><td>Stop on debounced-inactive; re-arm before the fallible poll; caps on max poll-count AND consecutive failures</td><td>A single max-poll-count cap</td><td>A success cap doesn't stop a failure loop — platform retries + cron re-arm become a low-grade storm burning Fleet calls + DB connections; a consecutive-failure breaker falls back to the self-recovering cron baseline.</td></tr><tr><td><strong>CHANGED</strong> Cross-context token safety</td><td>DB compare-and-swap on the token row is the PRIMARY guarantee; cron + reconcile deferral is best-effort only</td><td>Treating "cron defers to burst poller" as the guarantee</td><td>In-process single-flight doesn't span isolates, and the hourly reconcile also touches the token, so two-plus contexts can hit the rotating refresh token; only the DB CAS spans isolates.</td></tr><tr><td><strong>NEW</strong> Connection discipline</td><td>Fresh DB client per alarm, tiny pool (1–2), closed promptly</td><td>Reuse the default pool per alarm</td><td>A recurring 20s connection producer feeds the same fan-out that previously caused connection-exhaustion errors; keep its footprint minimal and confirm the connection pooler absorbs it alongside SSR + crons.</td></tr></tbody></table></div>
+    </section>
+
+    <section id="tradeoffs">
+      <h2>Tradeoffs &amp; out of scope <a class="anchor" href="#tradeoffs">#</a></h2>
+      <div><li><strong>ACCEPT:</strong> ≤2-min lag before the burst poller arms → a drive's first minute or two is captured at baseline resolution.</li><li><strong>ACCEPT:</strong> ~1.5× Fleet-API calls during active windows → modest cost increase, gated to active periods only.</li><li><strong>ACCEPT:</strong> session-close hysteresis runs a few extra polls past the true end before closing → negligible at 20s.</li><li><strong>ACCEPT:</strong> one new stateful component (a per-vehicle burst poller) → small added complexity, but Workers-native and ~$0 incremental.</li><li><strong>OUT:</strong> idle/asleep cadence is unchanged — no faster polling of parked cars (protects sleep).</li><li><strong>OUT:</strong> charge curves are not the justification — 60s already captures them; the real win is drive-path smoothness.</li><li><strong>OUT:</strong> true sub-second / 500ms telemetry — separately rejected (needs a virtual key + an always-on mTLS server).</li></div>
+    </section>
+
+    <section id="questions">
+      <h2>Open questions <a class="anchor" href="#questions">#</a></h2>
+      <ul class="risks"><li>What is the actual current Fleet-API monthly spend versus the $10 credit — and if it is already over, should the cadence start slower than 20s?</li><li>Does the token store, on a losing compare-and-swap, re-read the winner's freshly-rotated refresh token rather than reuse the stale one (must be verified during implementation)?</li><li>Should a future "sleep mode" back the idle cron down to a cheap state-only check for long-parked cars to offset the burst poller's added cost, accepting it might miss a charge-start?</li><li>Should the active cadence be a user-facing setting, or stay hardcoded to begin with?</li></ul>
+    </section>
+
+    <section id="security">
+      <h2>Security pass <a class="anchor" href="#security">#</a></h2>
+      <div><table><thead><tr><th>Area</th><th>Decision</th></tr></thead><tbody><tr><td>User scoping</td><td>Burst poller carries (vehicle, user); every read/write keeps the user filter — the RLS-lockdown model is unchanged.</td></tr><tr><td>Token race</td><td>DB compare-and-swap on the token row is the cross-isolate guarantee; cron + reconcile deferral reduces overlap but isn't relied on; forced re-auth on a rejected read as backstop.</td></tr><tr><td>Trigger surface</td><td>Burst poller armed only via the in-Worker binding from the scheduler — no public kick route; if one is ever added it reuses the existing cron Bearer secret.</td></tr><tr><td>Secrets at rest</td><td>Tesla tokens stay encrypted at rest in the database; burst-poller storage holds only scheduling state — never tokens or location/PII.</td></tr><tr><td>Runaway protection</td><td>Hard caps on max poll-count and consecutive failures, plus re-arm-before-poll; the existing 6h stale-session reaper is the database backstop.</td></tr><tr><td>Battery safety</td><td>Tight polling gated strictly to driving/charging; parked-online cars are never polled faster than today, so sleep is preserved.</td></tr><tr><td>Read-only posture</td><td>N/A — no commands, no virtual key; the read-only Fleet-API scope is unchanged.</td></tr></tbody></table></div>
+    </section>
+
+    <footer>
+      <div>Reviewer: ____________________</div>
+      <div class="next">Next: spec writing</div>
+    </footer>
+  </main>
+</div>
+
+<script type="module">
+// Shared review-doc runtime — inlined into every generated artifact.
+// Diagrams are now hand-authored SVG, baked in at generation time, so there is
+// no Mermaid and no runtime layout. This script handles only browser concerns:
+//
+//   - highlight.js for code blocks (CDN, optional)
+//   - TOC build + scroll-spy
+//   - semantic <strong>NEW/CHANGED/…</strong> tag pills
+//   - click-to-enlarge lightbox for baked SVG diagrams
+
+// 1. highlight.js — wrap code blocks (always, so they're styled even offline),
+//    then load the browser UMD build from the CDN and highlight when ready.
+const HLJS_SRC = "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/highlight.min.js";
+
+function wrapCodeBlocks() {
+  document.querySelectorAll("pre.code").forEach((pre) => {
+    if (pre.querySelector("code")) return;
+    const code = document.createElement("code");
+    while (pre.firstChild) code.appendChild(pre.firstChild);
+    const lang = pre.dataset.lang;
+    if (lang) code.className = "language-" + lang;
+    pre.appendChild(code);
+  });
+}
+
+function highlightAll() {
+  if (typeof window.hljs === "undefined") return false;
+  document.querySelectorAll("pre.code code").forEach((el) => {
+    if (el.dataset.hl) return;
+    try { window.hljs.highlightElement(el); el.dataset.hl = "1"; } catch (e) { /* leave plain */ }
+  });
+  return true;
+}
+
+function initCode() {
+  wrapCodeBlocks();
+  if (highlightAll()) return;            // hljs already present
+  const s = document.createElement("script");
+  s.src = HLJS_SRC;
+  s.onload = highlightAll;
+  s.onerror = () => { /* offline — code stays plain but styled */ };
+  document.head.appendChild(s);
+}
+
+// 2. TOC + scroll-spy
+function buildToc() {
+  const tocList = document.getElementById("toc-list");
+  if (!tocList) return;
+  const sections = [...document.querySelectorAll("main section[id]")];
+  sections.forEach((s) => {
+    const h2 = s.querySelector("h2");
+    if (!h2) return;
+    const titleNode = h2.cloneNode(true);
+    titleNode.querySelectorAll(".anchor").forEach((n) => n.remove());
+    const text = titleNode.textContent.trim();
+    if (!text) return;
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = "#" + s.id;
+    a.textContent = text;
+    a.dataset.target = s.id;
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+  const links = [...tocList.querySelectorAll("a")];
+  let ticking = false;
+  const updateActive = () => {
+    ticking = false;
+    const targetY = window.innerHeight * 0.2;
+    let activeId = sections[0]?.id || null;
+    for (const s of sections) {
+      if (s.getBoundingClientRect().top <= targetY) activeId = s.id;
+    }
+    links.forEach((a) => a.classList.toggle("active", a.dataset.target === activeId));
+  };
+  window.addEventListener("scroll", () => {
+    if (!ticking) { requestAnimationFrame(updateActive); ticking = true; }
+  }, { passive: true });
+  updateActive();
+}
+
+// 3. Semantic tag pills
+function applyTagPills() {
+  const TAG_MAP = {
+    NEW: "add", ADD: "add", ADDED: "add",
+    CHANGED: "change", CHANGE: "change", UPDATE: "change", UPDATED: "change", MOVED: "change", RENAMED: "change",
+    BREAKING: "break",
+    DEPRECATED: "warn", DEPRECATE: "warn", REMOVED: "warn", REMOVE: "warn",
+    FIX: "fix", FIXED: "fix"
+  };
+  document.querySelectorAll("li").forEach((li) => {
+    let first = li.firstElementChild;
+    if (first && first.tagName === "P") first = first.firstElementChild;
+    if (!first || first.tagName !== "STRONG") return;
+    const m = first.textContent.trim().match(/^([A-Za-z]+):?$/);
+    if (!m) return;
+    const key = m[1].toUpperCase();
+    const cls = TAG_MAP[key];
+    if (!cls) return;
+    first.textContent = key;
+    first.classList.add("tag", "tag-" + cls);
+    const nxt = first.nextSibling;
+    if (nxt && nxt.nodeType === 3) nxt.textContent = nxt.textContent.replace(/^[\s:.]+/, " ");
+  });
+}
+
+// 4. Diagram interactions — clickable vectors show a detail popover; an explicit
+//    button enlarges the diagram in a lightbox (where details stay clickable).
+function initDiagramInteractions() {
+  const figures = [...document.querySelectorAll("figure.diagram")];
+  if (!figures.length) return;
+
+  // shared detail popover
+  const pop = document.createElement("div");
+  pop.className = "dg-popover";
+  pop.innerHTML = '<button class="dg-popover-close" aria-label="Close">×</button><div class="dg-popover-body"></div>';
+  document.body.appendChild(pop);
+  const popBody = pop.querySelector(".dg-popover-body");
+  const closePop = () => pop.classList.remove("open");
+  pop.querySelector(".dg-popover-close").addEventListener("click", (e) => { e.stopPropagation(); closePop(); });
+  pop.addEventListener("click", (e) => e.stopPropagation());
+
+  function showDetail(target) {
+    const detail = target.getAttribute("data-detail");
+    if (!detail) return;
+    popBody.textContent = detail;
+    pop.classList.add("open");
+    pop.classList.remove("below");
+    const r = target.getBoundingClientRect();
+    const pr = pop.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const cx = r.left + r.width / 2;
+    let left = cx - pr.width / 2;
+    left = Math.max(10, Math.min(left, vw - pr.width - 10));
+    let top = r.top - pr.height - 11;          // default: above the vector
+    if (top < 10) { top = r.bottom + 11; pop.classList.add("below"); } // flip below
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+    pop.style.setProperty("--arrow-x", (cx - left) + "px");
+  }
+
+  function bind(root) {
+    root.querySelectorAll(".dg-clickable[data-detail]").forEach((el) => {
+      el.addEventListener("click", (e) => { e.stopPropagation(); showDetail(el); });
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showDetail(el); }
+      });
+    });
+  }
+  figures.forEach(bind);
+
+  document.addEventListener("click", closePop);
+  window.addEventListener("scroll", closePop, { passive: true });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+
+  // lightbox + per-figure enlarge button
+  const box = document.createElement("div");
+  box.className = "dg-lightbox";
+  box.addEventListener("click", () => { box.classList.remove("open"); box.innerHTML = ""; });
+  document.body.appendChild(box);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { box.classList.remove("open"); box.innerHTML = ""; }
+  });
+
+  figures.forEach((fig) => {
+    const svg = fig.querySelector("svg.dg");
+    if (!svg) return;
+    const btn = document.createElement("button");
+    btn.className = "dg-expand";
+    btn.title = "Enlarge";
+    btn.setAttribute("aria-label", "Enlarge diagram");
+    btn.textContent = "⤢";
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closePop();
+      box.innerHTML = "";
+      const clone = svg.cloneNode(true);
+      box.appendChild(clone);
+      bind(clone);                 // keep details clickable when enlarged
+      box.classList.add("open");
+    });
+    fig.appendChild(btn);
+  });
+}
+
+(function boot() {
+  initCode();
+  applyTagPills();
+  buildToc();
+  initDiagramInteractions();
+})();
+
+</script>
+</body>
+</html>

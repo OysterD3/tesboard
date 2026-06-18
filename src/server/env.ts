@@ -22,6 +22,11 @@ function optional(name: string, fallback = ''): string {
   return process.env[name] ?? fallback
 }
 
+function numOr(name: string, fallback: number): number {
+  const n = Number(process.env[name])
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
 export const serverEnv = {
   tesla: () => ({
     clientId: required('TESLA_CLIENT_ID'),
@@ -59,6 +64,14 @@ export const serverEnv = {
   // Direct Postgres access for Drizzle (postgres-js over the Supabase pooler).
   // The connection string carries the DB password — keep it server-only.
   database: () => ({ url: required('DATABASE_URL') }),
+  // Adaptive burst polling (the per-VIN Durable Object). OFF by default: when
+  // disabled the cron poller behaves exactly as it always has. Set BURST_POLL=on
+  // (a wrangler var) to enable ~20s/30s polling while driving/charging.
+  burstPoll: () => ({
+    enabled: optional('BURST_POLL', 'off').toLowerCase() === 'on',
+    driveS: numOr('BURST_POLL_DRIVE_S', 20),
+    chargeS: numOr('BURST_POLL_CHARGE_S', 30),
+  }),
 }
 
 /** Tesla's well-known OAuth endpoints (region-independent). */
