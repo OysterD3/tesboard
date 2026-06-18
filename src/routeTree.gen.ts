@@ -20,6 +20,7 @@ import { Route as DashboardGeofencesRouteImport } from './routes/dashboard/geofe
 import { Route as DashboardFlagsRouteImport } from './routes/dashboard/flags'
 import { Route as DashboardDrivesRouteImport } from './routes/dashboard/drives'
 import { Route as DashboardChargingRouteImport } from './routes/dashboard/charging'
+import { Route as DashboardBatteryRouteImport } from './routes/dashboard/battery'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard/analytics'
 import { Route as ApiCronPollRouteImport } from './routes/api/cron/poll'
 import { Route as ApiAuthTeslaLoginRouteImport } from './routes/api/auth/tesla/login'
@@ -80,6 +81,11 @@ const DashboardChargingRoute = DashboardChargingRouteImport.update({
   path: '/charging',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardBatteryRoute = DashboardBatteryRouteImport.update({
+  id: '/battery',
+  path: '/battery',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRouteWithChildren
   '/login': typeof LoginRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
+  '/dashboard/battery': typeof DashboardBatteryRoute
   '/dashboard/charging': typeof DashboardChargingRoute
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
+  '/dashboard/battery': typeof DashboardBatteryRoute
   '/dashboard/charging': typeof DashboardChargingRoute
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRouteWithChildren
   '/login': typeof LoginRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
+  '/dashboard/battery': typeof DashboardBatteryRoute
   '/dashboard/charging': typeof DashboardChargingRoute
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/dashboard/analytics'
+    | '/dashboard/battery'
     | '/dashboard/charging'
     | '/dashboard/drives'
     | '/dashboard/flags'
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/dashboard/analytics'
+    | '/dashboard/battery'
     | '/dashboard/charging'
     | '/dashboard/drives'
     | '/dashboard/flags'
@@ -192,6 +203,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/dashboard/analytics'
+    | '/dashboard/battery'
     | '/dashboard/charging'
     | '/dashboard/drives'
     | '/dashboard/flags'
@@ -293,6 +305,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardChargingRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/battery': {
+      id: '/dashboard/battery'
+      path: '/battery'
+      fullPath: '/dashboard/battery'
+      preLoaderRoute: typeof DashboardBatteryRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/analytics': {
       id: '/dashboard/analytics'
       path: '/analytics'
@@ -326,6 +345,7 @@ declare module '@tanstack/react-router' {
 
 interface DashboardRouteChildren {
   DashboardAnalyticsRoute: typeof DashboardAnalyticsRoute
+  DashboardBatteryRoute: typeof DashboardBatteryRoute
   DashboardChargingRoute: typeof DashboardChargingRoute
   DashboardDrivesRoute: typeof DashboardDrivesRoute
   DashboardFlagsRoute: typeof DashboardFlagsRoute
@@ -338,6 +358,7 @@ interface DashboardRouteChildren {
 
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAnalyticsRoute: DashboardAnalyticsRoute,
+  DashboardBatteryRoute: DashboardBatteryRoute,
   DashboardChargingRoute: DashboardChargingRoute,
   DashboardDrivesRoute: DashboardDrivesRoute,
   DashboardFlagsRoute: DashboardFlagsRoute,

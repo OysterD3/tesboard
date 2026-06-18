@@ -3,15 +3,21 @@ import {
   binConsumptionByTemp,
   bucketMileage,
   buildBatteryHealth,
+  buildBatteryReadings,
   buildPhantomCauses,
   buildPhantomDrain,
   capacityKwh,
   integrateGridEnergyKwh,
+  linearRegression,
+  maxRangeMiAtFull,
   measuredLossPct,
+  odometerForTime,
+  recentMean,
   sumChargeEnergyAdded,
   mergeTimeline,
   periodKey,
   projectedRangeMi,
+  type OdoSample,
   type PhantomCauseSnap,
   type PhantomSnap,
 } from './analytics-vm'
@@ -49,6 +55,108 @@ describe('buildBatteryHealth', () => {
 describe('projectedRangeMi', () => {
   it('projects rated range at 100% from capacity + efficiency', () => {
     expect(projectedRangeMi(75, 250)).toBeCloseTo(300, 6)
+  })
+})
+
+describe('maxRangeMiAtFull', () => {
+  it('extrapolates a rated-range reading to 100% SOC (efficiency-free)', () => {
+    // 150 mi at 50% → 300 mi at 100%.
+    expect(maxRangeMiAtFull(150, 50)).toBeCloseTo(300, 6)
+    expect(maxRangeMiAtFull(265, 100)).toBeCloseTo(265, 6)
+  })
+  it('guards missing/zero inputs', () => {
+    expect(maxRangeMiAtFull(null, 50)).toBeNull()
+    expect(maxRangeMiAtFull(150, 0)).toBeNull()
+  })
+})
+
+describe('recentMean', () => {
+  it('averages the most recent n finite values', () => {
+    expect(recentMean([10, 20, 30, 40], 2)).toBeCloseTo(35, 6) // mean(30,40)
+    expect(recentMean([5], 5)).toBeCloseTo(5, 6)
+  })
+  it('ignores non-finite values and returns null when empty', () => {
+    expect(recentMean([NaN, Infinity])).toBeNull()
+    expect(recentMean([])).toBeNull()
+  })
+})
+
+describe('linearRegression', () => {
+  it('recovers slope + intercept of a perfect line', () => {
+    const fit = linearRegression([
+      { x: 0, y: 2 },
+      { x: 10, y: 4 },
+      { x: 20, y: 6 },
+    ])
+    expect(fit?.slope).toBeCloseTo(0.2, 6)
+    expect(fit?.intercept).toBeCloseTo(2, 6)
+  })
+  it('captures a downward degradation trend', () => {
+    const fit = linearRegression([
+      { x: 0, y: 75 },
+      { x: 5000, y: 74 },
+      { x: 10000, y: 72.5 },
+    ])
+    expect(fit?.slope).toBeLessThan(0)
+  })
+  it('returns null with <2 points or zero x-variance', () => {
+    expect(linearRegression([{ x: 1, y: 1 }])).toBeNull()
+    expect(linearRegression([{ x: 5, y: 1 }, { x: 5, y: 9 }])).toBeNull()
+  })
+})
+
+describe('odometerForTime', () => {
+  const odo: OdoSample[] = [
+    { at: '2026-01-01T00:00:00Z', odometer: 100 },
+    { at: '2026-02-01T00:00:00Z', odometer: 500 },
+    { at: '2026-03-01T00:00:00Z', odometer: 900 },
+  ]
+  it('returns the last odometer at or before the moment', () => {
+    expect(odometerForTime(odo, '2026-02-15T00:00:00Z')).toBe(500)
+    expect(odometerForTime(odo, '2026-02-01T00:00:00Z')).toBe(500) // inclusive
+    expect(odometerForTime(odo, '2026-05-01T00:00:00Z')).toBe(900)
+  })
+  it('falls back to the earliest sample before the first one, null when empty', () => {
+    expect(odometerForTime(odo, '2025-06-01T00:00:00Z')).toBe(100)
+    expect(odometerForTime([], '2026-01-01T00:00:00Z')).toBeNull()
+  })
+})
+
+describe('buildBatteryReadings', () => {
+  const odo: OdoSample[] = [
+    { at: '2026-01-10T00:00:00Z', odometer: 1000 },
+    { at: '2026-02-10T00:00:00Z', odometer: 4000 },
+  ]
+  it('computes capacity + max-range per charge and attaches the nearest odometer', () => {
+    const readings = buildBatteryReadings(
+      [
+        { date: '2026-02-15T00:00:00Z', endRangeMi: 150, endSoc: 50 },
+        { date: '2026-01-12T00:00:00Z', endRangeMi: 260, endSoc: 100 },
+      ],
+      odo,
+      250,
+    )
+    // sorted chronologically
+    expect(readings.map((r) => r.date)).toEqual([
+      '2026-01-12T00:00:00Z',
+      '2026-02-15T00:00:00Z',
+    ])
+    // Jan reading → odometer from the Jan-10 drive (1000); Feb → Feb-10 (4000).
+    expect(readings[0].odometerMi).toBe(1000)
+    expect(readings[1].odometerMi).toBe(4000)
+    // capacity: 150mi @50% @250Wh/mi → 75 kWh; max range → 300 mi.
+    expect(readings[1].capacityKwh).toBeCloseTo(75, 6)
+    expect(readings[1].maxRangeMi).toBeCloseTo(300, 6)
+    expect(readings[0].maxRangeMi).toBeCloseTo(260, 6)
+  })
+  it('still yields max range when efficiency is unknown (capacity null)', () => {
+    const [r] = buildBatteryReadings(
+      [{ date: '2026-02-15T00:00:00Z', endRangeMi: 150, endSoc: 50 }],
+      odo,
+      null,
+    )
+    expect(r.capacityKwh).toBeNull()
+    expect(r.maxRangeMi).toBeCloseTo(300, 6)
   })
 })
 

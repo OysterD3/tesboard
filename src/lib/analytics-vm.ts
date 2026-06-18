@@ -54,6 +54,126 @@ export function projectedRangeMi(capacityKwh: number | null, effWhPerMi: number 
   return (capacityKwh * 1000) / effWhPerMi
 }
 
+/**
+ * Max rated range at 100% SOC implied by a `rangeMi`-at-`soc`% reading. Range
+ * scales ~linearly with SOC, so the full-charge range is range × 100 / soc.
+ * Unlike capacity this needs no efficiency factor, so the max-range trend still
+ * works for vehicles whose Wh/mi hasn't been derived yet. Null on bad inputs.
+ */
+export function maxRangeMiAtFull(rangeMi: number | null, soc: number | null): number | null {
+  if (rangeMi == null || soc == null) return null
+  if (!(rangeMi > 0) || !(soc > 0)) return null
+  return (rangeMi * 100) / soc
+}
+
+/** Mean of the most recent `n` finite values (chronological order assumed). */
+export function recentMean(values: number[], n = 5): number | null {
+  const v = values.filter((x) => Number.isFinite(x))
+  if (!v.length) return null
+  const recent = v.slice(-n)
+  return recent.reduce((a, b) => a + b, 0) / recent.length
+}
+
+export interface TrendLine {
+  slope: number
+  intercept: number
+}
+
+/**
+ * Ordinary least-squares fit y = slope·x + intercept over the points. Returns
+ * null with fewer than two finite points or a degenerate (zero-variance) x —
+ * the degradation trend line drawn on the battery charts.
+ */
+export function linearRegression(points: { x: number; y: number }[]): TrendLine | null {
+  const v = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+  const n = v.length
+  if (n < 2) return null
+  let sx = 0
+  let sy = 0
+  let sxx = 0
+  let sxy = 0
+  for (const p of v) {
+    sx += p.x
+    sy += p.y
+    sxx += p.x * p.x
+    sxy += p.x * p.y
+  }
+  const denom = n * sxx - sx * sx
+  if (denom === 0) return null
+  const slope = (n * sxy - sx * sy) / denom
+  const intercept = (sy - slope * sx) / n
+  return { slope, intercept }
+}
+
+// ── Battery health readings (capacity + max-range vs odometer) ─────────────────
+
+/** A charge's post-charge readout, the input to a battery-health point. */
+export interface ChargeCapRow {
+  date: string // ended_at (ISO)
+  endRangeMi: number | null
+  endSoc: number | null
+}
+/** An odometer sample taken at a point in time (from drive endpoints). */
+export interface OdoSample {
+  at: string // ISO timestamp
+  odometer: number // miles
+}
+/** A single battery-health reading plotted on the Capacity / Max-range charts. */
+export interface BatteryReading {
+  date: string
+  odometerMi: number | null
+  capacityKwh: number | null
+  maxRangeMi: number | null
+}
+
+/**
+ * Odometer (miles) at or before `iso` from time-sorted samples — the last sample
+ * not after the moment. If the moment predates every sample (no drive recorded
+ * yet) we fall back to the earliest known odometer. Null when there are none.
+ */
+export function odometerForTime(sortedOdo: OdoSample[], iso: string): number | null {
+  if (sortedOdo.length === 0) return null
+  const target = new Date(iso).getTime()
+  if (!Number.isFinite(target)) return null
+  let lo = 0
+  let hi = sortedOdo.length - 1
+  let ans = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (new Date(sortedOdo[mid].at).getTime() <= target) {
+      ans = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return ans >= 0 ? sortedOdo[ans].odometer : sortedOdo[0].odometer
+}
+
+/**
+ * Assemble battery-health readings: for each post-charge readout compute the
+ * implied pack capacity (needs the efficiency factor) and the max range at 100%
+ * (efficiency-free), and attach the odometer at the charge from the drive-derived
+ * odometer timeline. Output is chronological. Pure — the server fn supplies rows.
+ */
+export function buildBatteryReadings(
+  rows: ChargeCapRow[],
+  odo: OdoSample[],
+  effWhPerMi: number | null,
+): BatteryReading[] {
+  const sortedOdo = [...odo]
+    .filter((s) => Number.isFinite(new Date(s.at).getTime()) && Number.isFinite(s.odometer))
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+  return rows
+    .map((r) => ({
+      date: r.date,
+      odometerMi: odometerForTime(sortedOdo, r.date),
+      capacityKwh: capacityKwh(r.endRangeMi, r.endSoc, effWhPerMi),
+      maxRangeMi: maxRangeMiAtFull(r.endRangeMi, r.endSoc),
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+}
+
 export interface ConsumptionPoint {
   tempC: number
   whPerMi: number

@@ -231,7 +231,10 @@ function DashboardShell() {
           {NAV.map((n) => {
             const active = n.exact
               ? location.pathname === n.to || location.pathname === n.to + '/'
-              : location.pathname.startsWith(n.to)
+              : location.pathname.startsWith(n.to) ||
+                // The Battery-health drill-in lives at /dashboard/battery but
+                // belongs to the Analytics tab.
+                (n.key === 'analytics' && location.pathname.startsWith('/dashboard/battery'))
             const color = n.color === '__accent__' ? accent : n.color
             const tint = active ? color : td
             return (
