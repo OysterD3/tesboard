@@ -211,6 +211,25 @@ describe('buildDriveDetail', () => {
     expect(vm.peakElevM).toBe(140)
   })
 
+  it('computes rated range used and range efficiency %', () => {
+    // 240 → 186 rated mi = 54 mi ≈ 86.9 km used; 20 mi driven ≈ 32.2 km.
+    const vm = buildDriveDetail(payload())
+    expect(vm.ratedUsedKm).toBeCloseTo(54 * KM_PER_MI, 1)
+    expect(vm.rangeEffPct).toBe(Math.round(((20 * KM_PER_MI) / (54 * KM_PER_MI)) * 100)) // 37%
+  })
+
+  it('leaves range efficiency null without range readings', () => {
+    const vm = buildDriveDetail(payload({ drive: drive({ start_range_mi: null, end_range_mi: null }) }))
+    expect(vm.ratedUsedKm).toBeNull()
+    expect(vm.rangeEffPct).toBeNull()
+  })
+
+  it('formats trip endpoint stamps with weekday (UTC)', () => {
+    const vm = buildDriveDetail(payload(), 'UTC')
+    expect(vm.startStamp).toBe('Thu, Jun 18 · 2:00 PM')
+    expect(vm.endStamp).toBe('Thu, Jun 18 · 2:30 PM')
+  })
+
   it('converts efficiency to Wh/km', () => {
     const vm = buildDriveDetail(payload())
     expect(vm.effWhKm).toBe(Math.round(300 / KM_PER_MI)) // 300 Wh/mi → ~186 Wh/km

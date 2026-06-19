@@ -6,7 +6,7 @@ import { Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
 import { SeriesChart, type SeriesPoint } from '../../components/dashboard/SeriesChart'
 import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
-import { SECTION } from '../../components/dashboard/theme'
+import { ICON, SECTION, hexToRgba } from '../../components/dashboard/theme'
 import { getDriveDetail, type DriveDetailPayload } from '../../functions/drive-detail.functions'
 import { exportDriveGpx } from '../../functions/export.functions'
 import { buildDriveDetail, fmtClockStamp, fmtElapsedMin } from '../../lib/drive-detail-vm'
@@ -23,7 +23,6 @@ import {
   fmtTemp,
   speedUnit,
   tempUnit,
-  type Units,
 } from '../../lib/units'
 
 const EMPTY: DriveDetailPayload = { drive: null, samples: [], points: [], sampled: false, estCost: null }
@@ -40,7 +39,9 @@ export const Route = createFileRoute('/dashboard/drives_/$driveId')({
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
+const START_DOT = '#34c759'
 const BACK = 'M15 18l-6-6 6-6'
+const DASH = '—'
 
 function DriveDetailPage() {
   const payload = Route.useLoaderData()
@@ -49,8 +50,8 @@ function DriveDetailPage() {
   const tz = useDisplayTz()
   const vm = buildDriveDetail(payload, tz)
 
-  // Chart x = elapsed minutes from the drive start; render the ticks + hover
-  // readout as the absolute clock time instead (tz-safe via useDisplayTz).
+  // Chart x = elapsed minutes from the drive start; render ticks + hover as the
+  // absolute clock time instead (tz-safe via useDisplayTz).
   const startMs = payload.drive ? new Date(payload.drive.started_at).getTime() : 0
   const fmtX = (min: number) => fmtClockStamp(startMs + min * 60000, tz)
 
@@ -67,8 +68,16 @@ function DriveDetailPage() {
     }
   }
 
+  const headerTitle = vm.endPlace ? `To ${vm.endPlace}` : vm.title
+
+  // Cost per distance unit, derived from the estimate.
+  const distSel = fmtDist(u, vm.distKm, 2)
+  const costPerDist =
+    vm.estCost && distSel > 0 ? { amount: vm.estCost.amount / distSel, currency: vm.estCost.currency } : null
+
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 0' }}>
         <Link
           to="/dashboard/drives"
@@ -90,18 +99,8 @@ function DriveDetailPage() {
           <Icon d={BACK} size={20} color={TX} />
         </Link>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-          <span
-            style={{
-              fontSize: 21,
-              fontWeight: 700,
-              letterSpacing: '-0.02em',
-              color: TX,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {vm.title}
+          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: '-0.02em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {headerTitle}
           </span>
           {vm.found && <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>{vm.subtitle}</span>}
         </div>
@@ -117,7 +116,7 @@ function DriveDetailPage() {
           {/* Map + GPX export */}
           {vm.hasGps && (
             <Card radius={22} style={{ padding: 14 }}>
-              <LeafletMap points={payload.points} color={COLOR} isDark={isDark} />
+              <LeafletMap points={payload.points} color={COLOR} isDark={isDark} height={240} />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
                 <span style={{ fontSize: 10, fontWeight: 500, color: TD, paddingLeft: 2 }}>
                   {payload.sampled
@@ -129,19 +128,7 @@ function DriveDetailPage() {
                   onClick={downloadGpx}
                   disabled={gpxBusy}
                   title="Download this drive as a GPX track"
-                  style={{
-                    flex: 'none',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: COLOR,
-                    background: 'none',
-                    border: `1px solid ${COLOR}`,
-                    borderRadius: 30,
-                    padding: '5px 12px',
-                    cursor: gpxBusy ? 'default' : 'pointer',
-                    opacity: gpxBusy ? 0.6 : 1,
-                    whiteSpace: 'nowrap',
-                  }}
+                  style={{ flex: 'none', fontSize: 11, fontWeight: 600, color: COLOR, background: 'none', border: `1px solid ${COLOR}`, borderRadius: 30, padding: '5px 12px', cursor: gpxBusy ? 'default' : 'pointer', opacity: gpxBusy ? 0.6 : 1, whiteSpace: 'nowrap' }}
                 >
                   {gpxBusy ? 'Exporting…' : 'Export GPX'}
                 </button>
@@ -149,151 +136,210 @@ function DriveDetailPage() {
             </Card>
           )}
 
-          {/* From → To */}
-          {(vm.startPlace || vm.endPlace) && (
-            <Card radius={20} style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <Endpoint label="From" place={vm.startPlace} dot="#34c759" />
-              <Endpoint label="To" place={vm.endPlace} dot={COLOR} />
-            </Card>
-          )}
-
-          {/* Headline stats */}
-          <Card radius={22} style={{ padding: 18 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', rowGap: 18, columnGap: 8 }}>
-              <Stat value={`${fmtDist(u, vm.distKm, 1)}`} unit={distUnit(u)} label="Distance" />
-              <Stat value={fmtElapsedMin(vm.durMin)} label="Duration" />
-              <Stat value={`${fmtSpeed(u, vm.avgKph)}`} unit={speedUnit(u)} label="Avg speed" />
-              <Stat value={vm.maxKph != null ? `${fmtSpeed(u, vm.maxKph)}` : '—'} unit={vm.maxKph != null ? speedUnit(u) : ''} label="Max speed" />
-              <Stat value={vm.kwh != null ? `${vm.kwh}` : '—'} unit={vm.kwh != null ? 'kWh' : ''} label="Energy" />
-              <Stat
-                value={vm.effWhKm != null ? `${effFromWhKm(u, vm.effWhKm)}` : '—'}
-                unit={vm.effWhKm != null ? effSuffix(u) : ''}
-                label="Efficiency"
-              />
-              <Stat
-                value={vm.batteryStart != null && vm.batteryEnd != null ? `${vm.batteryStart}→${vm.batteryEnd}` : '—'}
-                unit={vm.batteryStart != null && vm.batteryEnd != null ? '%' : ''}
-                label="Battery"
-              />
-              <Stat value={fmtMoney(vm.estCost)} label="Est. cost" />
-              <Stat
-                value={vm.ascentM != null ? `${fmtElev(u, vm.ascentM)}` : '—'}
-                unit={vm.ascentM != null ? elevUnit(u) : ''}
-                label="Elevation ↑"
-              />
+          {/* Trip: From → To + distance/duration */}
+          <Card radius={22} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <Endpoint stamp={vm.startStamp} battery={vm.batteryStart} place={vm.startPlace} color={START_DOT} isDark={isDark} connector />
+              <Endpoint stamp={vm.endStamp} battery={vm.batteryEnd} place={vm.endPlace} color={COLOR} isDark={isDark} />
             </div>
+            <Divider />
+            <TileRow>
+              <StatTile icon={ICON.gauge} label="Distance" value={`${fmtDist(u, vm.distKm, 1)}`} unit={distUnit(u)} accent={COLOR} />
+              <StatTile icon={ICON.clock} label="Duration" value={fmtElapsedMin(vm.durMin)} accent={COLOR} />
+            </TileRow>
           </Card>
 
-          {/* Charts */}
-          <ChartCard
-            title="Battery"
-            subtitle={vm.batteryStart != null && vm.batteryEnd != null ? `${vm.batteryStart}% → ${vm.batteryEnd}%` : null}
-            points={vm.series.battery}
-            color={COLOR}
-            formatX={fmtX}
-            formatY={(pct) => `${Math.round(pct)}`}
-            unitY="%"
-            empty="No battery readings recorded for this drive."
-          />
-          <ChartCard
-            title="Speed"
-            subtitle={vm.maxKph != null ? `max ${fmtSpeed(u, vm.maxKph)} ${speedUnit(u)}` : null}
-            points={vm.series.speedKph}
-            color={COLOR}
-            formatX={fmtX}
-            formatY={(kph) => `${fmtSpeed(u, kph)}`}
-            unitY={speedUnit(u)}
-            empty="No speed samples recorded for this drive."
-          />
-          <ChartCard
-            title="Elevation"
-            subtitle={elevationSubtitle(vm, u)}
-            points={vm.series.elevationM}
-            color={SECTION.insights}
-            formatX={fmtX}
-            formatY={(m) => `${fmtElev(u, m)}`}
-            unitY={elevUnit(u)}
-            empty="No elevation data for this drive (elevation comes from imported trips)."
-          />
-          <ChartCard
-            title="Interior temperature"
-            subtitle={vm.insideAvgC != null ? `avg ${fmtTemp(u, vm.insideAvgC)} ${tempUnit(u)}` : null}
-            points={vm.series.insideC}
-            color={SECTION.charging}
-            formatX={fmtX}
-            formatY={(c) => `${fmtTemp(u, c)}`}
-            unitY={tempUnit(u)}
-            empty="No interior-temperature samples for this drive."
-          />
-          <ChartCard
-            title="Exterior temperature"
-            subtitle={vm.outsideAvgC != null ? `avg ${fmtTemp(u, vm.outsideAvgC)} ${tempUnit(u)}` : null}
-            points={vm.series.outsideC}
-            color={SECTION.analytics}
-            formatX={fmtX}
-            formatY={(c) => `${fmtTemp(u, c)}`}
-            unitY={tempUnit(u)}
-            empty="No exterior-temperature samples for this drive."
-          />
+          {/* Costs */}
+          <SectionCard title="Costs">
+            <TileRow>
+              <StatTile icon={ICON.charging} fill label="Electric cost" value={fmtMoney(vm.estCost)} accent={SECTION.charging} />
+              <StatTile icon={ICON.dollar} label={`Cost / ${distUnit(u)}`} value={fmtMoney(costPerDist)} accent={SECTION.charging} />
+            </TileRow>
+          </SectionCard>
+
+          {/* Energy */}
+          <SectionCard title="Energy">
+            <TileRow>
+              <StatTile icon={ICON.battery} fill label="Total used" value={vm.kwh != null ? `${vm.kwh}` : DASH} unit={vm.kwh != null ? 'kWh' : ''} accent={SECTION.insights} />
+              <StatTile icon={ICON.leaf} label="Average" value={vm.effWhKm != null ? `${effFromWhKm(u, vm.effWhKm)}` : DASH} unit={vm.effWhKm != null ? effSuffix(u) : ''} accent={SECTION.insights} />
+            </TileRow>
+          </SectionCard>
+
+          {/* Speed */}
+          <SectionCard title="Speed">
+            <TileRow>
+              <StatTile icon={ICON.gauge} label="Average" value={`${fmtSpeed(u, vm.avgKph)}`} unit={speedUnit(u)} accent={COLOR} />
+              <StatTile icon={ICON.gauge} label="Max" value={vm.maxKph != null ? `${fmtSpeed(u, vm.maxKph)}` : DASH} unit={vm.maxKph != null ? speedUnit(u) : ''} accent={COLOR} />
+            </TileRow>
+            <Chart points={vm.series.speedKph} color={COLOR} formatX={fmtX} formatY={(kph) => `${fmtSpeed(u, kph)}`} unitY={speedUnit(u)} empty="No speed samples recorded for this drive." />
+          </SectionCard>
+
+          {/* Battery */}
+          <SectionCard title="Battery">
+            <TileRow>
+              <StatTile icon={ICON.battery} fill label="Start" value={vm.batteryStart != null ? `${vm.batteryStart}` : DASH} unit={vm.batteryStart != null ? '%' : ''} accent={COLOR} />
+              <StatTile icon={ICON.battery} fill label="End" value={vm.batteryEnd != null ? `${vm.batteryEnd}` : DASH} unit={vm.batteryEnd != null ? '%' : ''} accent={COLOR} />
+            </TileRow>
+            <Chart points={vm.series.battery} color={COLOR} formatX={fmtX} formatY={(pct) => `${Math.round(pct)}`} unitY="%" empty="No battery readings recorded for this drive." />
+          </SectionCard>
+
+          {/* Elevation */}
+          <SectionCard title="Elevation">
+            <TileRow>
+              <StatTile icon={ICON.analytics} label="Total" value={vm.ascentM != null ? `+${fmtElev(u, vm.ascentM)}` : DASH} unit={vm.ascentM != null ? elevUnit(u) : ''} accent={SECTION.insights} />
+              <StatTile icon={ICON.mountain} label="Peak" value={vm.peakElevM != null ? `${fmtElev(u, vm.peakElevM)}` : DASH} unit={vm.peakElevM != null ? elevUnit(u) : ''} accent={SECTION.insights} />
+            </TileRow>
+            <Chart points={vm.series.elevationM} color={SECTION.insights} formatX={fmtX} formatY={(m) => `${fmtElev(u, m)}`} unitY={elevUnit(u)} empty="No elevation yet — tap “Fill elevation” on the Drives list to derive it from GPS." />
+          </SectionCard>
+
+          {/* Range efficiency */}
+          <SectionCard title="Range efficiency">
+            <TileRow>
+              <StatTile icon={ICON.battery} fill label="Used" value={vm.ratedUsedKm != null ? `${fmtDist(u, vm.ratedUsedKm, 1)}` : DASH} unit={vm.ratedUsedKm != null ? distUnit(u) : ''} accent={SECTION.insights} />
+              <StatTile icon={ICON.leaf} label="Efficiency" value={vm.rangeEffPct != null ? `${vm.rangeEffPct}` : DASH} unit={vm.rangeEffPct != null ? '%' : ''} accent={SECTION.insights} />
+            </TileRow>
+          </SectionCard>
+
+          {/* Cabin temperatures */}
+          <SectionCard title="Interior temperature">
+            <StatTile icon={ICON.thermometer} label="Average" value={vm.insideAvgC != null ? `${fmtTemp(u, vm.insideAvgC)}` : DASH} unit={vm.insideAvgC != null ? tempUnit(u) : ''} accent={SECTION.charging} />
+            <Chart points={vm.series.insideC} color={SECTION.charging} formatX={fmtX} formatY={(c) => `${fmtTemp(u, c)}`} unitY={tempUnit(u)} empty="No interior-temperature samples for this drive." />
+          </SectionCard>
+
+          <SectionCard title="Exterior temperature">
+            <StatTile icon={ICON.thermometer} label="Average" value={vm.outsideAvgC != null ? `${fmtTemp(u, vm.outsideAvgC)}` : DASH} unit={vm.outsideAvgC != null ? tempUnit(u) : ''} accent={SECTION.analytics} />
+            <Chart points={vm.series.outsideC} color={SECTION.analytics} formatX={fmtX} formatY={(c) => `${fmtTemp(u, c)}`} unitY={tempUnit(u)} empty="No exterior-temperature samples for this drive." />
+          </SectionCard>
         </>
       )}
     </div>
   )
 }
 
-function elevationSubtitle(vm: ReturnType<typeof buildDriveDetail>, u: Units): string | null {
-  const parts: string[] = []
-  if (vm.ascentM != null) parts.push(`↑ ${fmtElev(u, vm.ascentM)} ${elevUnit(u)}`)
-  if (vm.descentM != null) parts.push(`↓ ${fmtElev(u, vm.descentM)} ${elevUnit(u)}`)
-  if (vm.peakElevM != null) parts.push(`peak ${fmtElev(u, vm.peakElevM)} ${elevUnit(u)}`)
-  return parts.length ? parts.join(' · ') : null
-}
-
-/** "$1.84" for USD, "1.84 EUR" otherwise; "—" when there's no rate to estimate from. */
+/** "$1.84" for USD, "1.84 EUR" otherwise; "—" when there's nothing to estimate from. */
 function fmtMoney(c: { amount: number; currency: string } | null): string {
-  if (!c) return '—'
+  if (!c) return DASH
   const n = c.amount.toFixed(2)
   return c.currency === 'USD' ? `$${n}` : `${n} ${c.currency}`
 }
 
-function Stat({ value, unit, label }: { value: string; unit?: string; label: string }) {
+/** A titled section block (Tessie-style: header, then tiles and/or a chart). */
+function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
-        <span style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>{value}</span>
-        {unit ? <span style={{ fontSize: 12, fontWeight: 600, color: TD }}>{unit}</span> : null}
-      </div>
-      <span style={{ fontSize: 11, fontWeight: 500, color: TD }}>{label}</span>
-    </div>
+    <Card radius={22} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>{title}</span>
+      {children}
+    </Card>
   )
 }
 
-function Endpoint({ label, place, dot }: { label: string; place: string | null; dot: string }) {
+function TileRow({ children }: { children: ReactNode }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>{children}</div>
+}
+
+function Divider() {
+  return <div style={{ height: 1, background: 'var(--border,rgba(0,0,0,0.07))' }} />
+}
+
+/** Circular-icon stat tile: icon badge + label + value (+ optional unit). */
+function StatTile({
+  icon,
+  label,
+  value,
+  unit,
+  accent,
+  fill = false,
+}: {
+  icon: string
+  label: string
+  value: string
+  unit?: string
+  accent: string
+  fill?: boolean
+}) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-      <span style={{ width: 9, height: 9, borderRadius: '50%', background: dot, flex: 'none' }} />
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: TD, width: 46, flex: 'none', whiteSpace: 'nowrap' }}>
-        {label.toUpperCase()}
-      </span>
-      <span
+      <div
         style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: TX,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
+          width: 42,
+          height: 42,
+          flex: 'none',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--track,#f0f0f3)',
         }}
       >
-        {place ?? 'Unknown location'}
-      </span>
+        <Icon d={icon} size={20} color={accent} fill={fill ? accent : 'none'} stroke={!fill} width={1.9} />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: TD, whiteSpace: 'nowrap' }}>
+          {label}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {value}
+          </span>
+          {unit ? <span style={{ fontSize: 12, fontWeight: 600, color: TD, flex: 'none' }}>{unit}</span> : null}
+        </div>
+      </div>
     </div>
   )
 }
 
-function ChartCard({
-  title,
-  subtitle,
+/** One end of the trip: pin + "stamp · battery%" over a bold place name. The
+ *  start endpoint draws a dotted connector down toward the end pin. */
+function Endpoint({
+  stamp,
+  battery,
+  place,
+  color,
+  isDark,
+  connector = false,
+}: {
+  stamp: string | null
+  battery: number | null
+  place: string | null
+  color: string
+  isDark: boolean
+  connector?: boolean
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 14, minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none', paddingTop: 2 }}>
+        <span
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: hexToRgba(color, isDark ? 0.24 : 0.14),
+          }}
+        >
+          <Icon d={ICON.pin} size={16} color={color} />
+        </span>
+        {connector && (
+          <span style={{ flex: 1, marginTop: 5, marginBottom: -3, minHeight: 16, borderLeft: '2px dotted var(--border,rgba(0,0,0,0.2))' }} />
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, paddingBottom: connector ? 18 : 0 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 600, color: TD, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {stamp || '—'}
+          {battery != null ? ` · ${battery}%` : ''}
+        </span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {place ?? 'Unknown location'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** A series chart, or an honest empty placeholder when there aren't ≥2 points. */
+function Chart({
   points,
   color,
   formatX,
@@ -301,8 +347,6 @@ function ChartCard({
   unitY,
   empty,
 }: {
-  title: string
-  subtitle: string | null
   points: SeriesPoint[]
   color: string
   formatX: (x: number) => string
@@ -310,31 +354,24 @@ function ChartCard({
   unitY: string
   empty: string
 }): ReactNode {
+  if (points.length >= 2) {
+    return <SeriesChart points={points} color={color} formatX={formatX} formatY={formatY} unitY={unitY} />
+  }
   return (
-    <Card radius={20} style={{ padding: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-        <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: TX }}>{title}</span>
-        {subtitle && <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{subtitle}</span>}
-      </div>
-      {points.length >= 2 ? (
-        <SeriesChart points={points} color={color} formatX={formatX} formatY={formatY} unitY={unitY} />
-      ) : (
-        <div
-          style={{
-            height: 96,
-            borderRadius: 14,
-            border: '1px solid var(--border,rgba(0,0,0,0.07))',
-            background: 'var(--track,#f7f7f9)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            textAlign: 'center',
-            padding: 16,
-          }}
-        >
-          <span style={{ fontSize: 11, fontWeight: 500, color: TD }}>{empty}</span>
-        </div>
-      )}
-    </Card>
+    <div
+      style={{
+        height: 96,
+        borderRadius: 14,
+        border: '1px solid var(--border,rgba(0,0,0,0.07))',
+        background: 'var(--track,#f7f7f9)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: 16,
+      }}
+    >
+      <span style={{ fontSize: 11, fontWeight: 500, color: TD }}>{empty}</span>
+    </div>
   )
 }

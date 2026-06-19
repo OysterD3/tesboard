@@ -45,6 +45,9 @@ export interface DriveDetailVM {
   subtitle: string
   startPlace: string | null
   endPlace: string | null
+  /** "Mon, Apr 20 · 7:14 PM" for each endpoint (tz-safe). */
+  startStamp: string
+  endStamp: string | null
   distKm: number
   durMin: number
   avgKph: number
@@ -61,6 +64,10 @@ export interface DriveDetailVM {
   peakElevM: number | null
   insideAvgC: number | null
   outsideAvgC: number | null
+  /** Rated range consumed over the drive (km), from the SOC range readings. */
+  ratedUsedKm: number | null
+  /** Range efficiency: actual distance ÷ rated range used, as a percent. */
+  rangeEffPct: number | null
   /** Estimated energy cost (energy × rate × loss); null when no rate configured. */
   estCost: { amount: number; currency: string } | null
   hasGps: boolean
@@ -127,6 +134,15 @@ function cumulativeElevation(points: Pt[]): { ascent: number; descent: number } 
 function dayLabel(iso: string, tz?: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
 }
+/** "Mon, Apr 20 · 7:14 PM" — weekday + date + time for a trip endpoint (tz-safe). */
+function stamp(iso: string, tz?: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const wd = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz })
+  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
+  const tm = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
+  return `${wd}, ${md} · ${tm}`
+}
 function clock(iso: string, tz?: string): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
 }
@@ -140,6 +156,8 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
       subtitle: '',
       startPlace: null,
       endPlace: null,
+      startStamp: '',
+      endStamp: null,
       distKm: 0,
       durMin: 0,
       avgKph: 0,
@@ -153,6 +171,8 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
       peakElevM: null,
       insideAvgC: null,
       outsideAvgC: null,
+      ratedUsedKm: null,
+      rangeEffPct: null,
       estCost: null,
       hasGps: false,
       series: EMPTY_SERIES,
@@ -186,6 +206,12 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
   // with the chart instead of showing nothing.
   const cumElev = cumulativeElevation(series.elevationM)
 
+  // Range efficiency: how the rated range the car gave up compares to the
+  // distance actually driven (Tessie's "efficiency %"). >100% = better than rated.
+  const ratedUsedMi = d.start_range_mi != null && d.end_range_mi != null ? d.start_range_mi - d.end_range_mi : null
+  const ratedUsedKm = ratedUsedMi != null && ratedUsedMi > 0 ? round(miToKm(ratedUsedMi), 1) : null
+  const rangeEffPct = ratedUsedKm != null && ratedUsedKm > 0 && distKm > 0 ? Math.round((distKm / ratedUsedKm) * 100) : null
+
   const s = d.startLocation
   const e = d.endLocation
   const place = s && e ? (s === e ? s : `${s} → ${e}`) : e || s || null
@@ -206,6 +232,8 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
     subtitle,
     startPlace: s,
     endPlace: e,
+    startStamp: stamp(d.started_at, tz),
+    endStamp: d.ended_at ? stamp(d.ended_at, tz) : null,
     distKm: round(distKm, 1),
     durMin,
     avgKph,
@@ -219,6 +247,8 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
     peakElevM,
     insideAvgC: d.inside_temp_avg,
     outsideAvgC: d.outside_temp_avg,
+    ratedUsedKm,
+    rangeEffPct,
     estCost: p.estCost ? { amount: round(p.estCost.amount, 2), currency: p.estCost.currency } : null,
     hasGps: p.points.length >= 1,
     series,
