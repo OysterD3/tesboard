@@ -9,7 +9,7 @@ import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
 import { getDriveDetail, type DriveDetailPayload } from '../../functions/drive-detail.functions'
 import { exportDriveGpx } from '../../functions/export.functions'
-import { buildDriveDetail, fmtElapsedMin } from '../../lib/drive-detail-vm'
+import { buildDriveDetail, fmtClockStamp, fmtElapsedMin } from '../../lib/drive-detail-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { downloadString } from '../../lib/download'
 import {
@@ -46,7 +46,13 @@ function DriveDetailPage() {
   const payload = Route.useLoaderData()
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
-  const vm = buildDriveDetail(payload, useDisplayTz())
+  const tz = useDisplayTz()
+  const vm = buildDriveDetail(payload, tz)
+
+  // Chart x = elapsed minutes from the drive start; render the ticks + hover
+  // readout as the absolute clock time instead (tz-safe via useDisplayTz).
+  const startMs = payload.drive ? new Date(payload.drive.started_at).getTime() : 0
+  const fmtX = (min: number) => fmtClockStamp(startMs + min * 60000, tz)
 
   const fetchGpx = useServerFn(exportDriveGpx)
   const [gpxBusy, setGpxBusy] = useState(false)
@@ -184,6 +190,7 @@ function DriveDetailPage() {
             subtitle={vm.batteryStart != null && vm.batteryEnd != null ? `${vm.batteryStart}% → ${vm.batteryEnd}%` : null}
             points={vm.series.battery}
             color={COLOR}
+            formatX={fmtX}
             formatY={(pct) => `${Math.round(pct)}`}
             unitY="%"
             empty="No battery readings recorded for this drive."
@@ -193,6 +200,7 @@ function DriveDetailPage() {
             subtitle={vm.maxKph != null ? `max ${fmtSpeed(u, vm.maxKph)} ${speedUnit(u)}` : null}
             points={vm.series.speedKph}
             color={COLOR}
+            formatX={fmtX}
             formatY={(kph) => `${fmtSpeed(u, kph)}`}
             unitY={speedUnit(u)}
             empty="No speed samples recorded for this drive."
@@ -202,6 +210,7 @@ function DriveDetailPage() {
             subtitle={elevationSubtitle(vm, u)}
             points={vm.series.elevationM}
             color={SECTION.insights}
+            formatX={fmtX}
             formatY={(m) => `${fmtElev(u, m)}`}
             unitY={elevUnit(u)}
             empty="No elevation data for this drive (elevation comes from imported trips)."
@@ -211,6 +220,7 @@ function DriveDetailPage() {
             subtitle={vm.insideAvgC != null ? `avg ${fmtTemp(u, vm.insideAvgC)} ${tempUnit(u)}` : null}
             points={vm.series.insideC}
             color={SECTION.charging}
+            formatX={fmtX}
             formatY={(c) => `${fmtTemp(u, c)}`}
             unitY={tempUnit(u)}
             empty="No interior-temperature samples for this drive."
@@ -220,6 +230,7 @@ function DriveDetailPage() {
             subtitle={vm.outsideAvgC != null ? `avg ${fmtTemp(u, vm.outsideAvgC)} ${tempUnit(u)}` : null}
             points={vm.series.outsideC}
             color={SECTION.analytics}
+            formatX={fmtX}
             formatY={(c) => `${fmtTemp(u, c)}`}
             unitY={tempUnit(u)}
             empty="No exterior-temperature samples for this drive."
@@ -285,6 +296,7 @@ function ChartCard({
   subtitle,
   points,
   color,
+  formatX,
   formatY,
   unitY,
   empty,
@@ -293,6 +305,7 @@ function ChartCard({
   subtitle: string | null
   points: SeriesPoint[]
   color: string
+  formatX: (x: number) => string
   formatY: (y: number) => string
   unitY: string
   empty: string
@@ -304,13 +317,7 @@ function ChartCard({
         {subtitle && <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{subtitle}</span>}
       </div>
       {points.length >= 2 ? (
-        <SeriesChart
-          points={points}
-          color={color}
-          formatX={fmtElapsedMin}
-          formatY={formatY}
-          unitY={unitY}
-        />
+        <SeriesChart points={points} color={color} formatX={formatX} formatY={formatY} unitY={unitY} />
       ) : (
         <div
           style={{

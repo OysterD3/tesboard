@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDriveDetail, downsampleSeries, fmtElapsedMin } from './drive-detail-vm'
+import { buildDriveDetail, downsampleSeries, fmtClockStamp, fmtElapsedMin } from './drive-detail-vm'
 import type { DriveDetailPayload, DriveSampleRaw } from '../functions/drive-detail.functions'
 import type { DriveWithLocation } from '../functions/drives.functions'
 
@@ -91,6 +91,20 @@ describe('fmtElapsedMin', () => {
   })
   it('clamps negatives to zero', () => {
     expect(fmtElapsedMin(-5)).toBe('0m')
+  })
+})
+
+describe('fmtClockStamp', () => {
+  it('renders an absolute date + time at a tz (UTC)', () => {
+    const ms = new Date('2026-06-18T14:05:00Z').getTime()
+    expect(fmtClockStamp(ms, 'UTC')).toBe('Jun 18, 2:05 PM')
+  })
+  it('adds elapsed minutes onto a start instant', () => {
+    const start = new Date('2026-06-18T14:00:00Z').getTime()
+    expect(fmtClockStamp(start + 51 * 60000, 'UTC')).toBe('Jun 18, 2:51 PM')
+  })
+  it('returns empty string for an invalid timestamp', () => {
+    expect(fmtClockStamp(NaN, 'UTC')).toBe('')
   })
 })
 

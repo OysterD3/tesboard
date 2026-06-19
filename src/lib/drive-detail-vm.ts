@@ -89,13 +89,26 @@ export function downsampleSeries<T>(rows: T[], max: number): T[] {
   return out.filter((v, i) => i === 0 || v !== out[i - 1])
 }
 
-/** "0m" / "12m" / "1h 4m" — tz-independent elapsed-time label for chart x-axes. */
+/** "0m" / "12m" / "1h 4m" — tz-independent elapsed-time label. */
 export function fmtElapsedMin(min: number): string {
   const m = Math.max(0, Math.round(min))
   if (m < 60) return `${m}m`
   const h = Math.floor(m / 60)
   const rem = m % 60
   return rem ? `${h}h ${rem}m` : `${h}h`
+}
+
+/**
+ * Absolute "Jun 18, 2:05 PM" label for a chart x value. `ms` is a real epoch
+ * timestamp (the drive start + the sample's elapsed minutes); `tz` is 'UTC'
+ * during SSR / first client render so the label can't shift between them.
+ */
+export function fmtClockStamp(ms: number, tz?: string): string {
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
+  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
+  return `${day}, ${time}`
 }
 
 function dayLabel(iso: string, tz?: string): string {
