@@ -1,0 +1,195 @@
+/**
+ * Pure view-model for a single drive's detail page. The server fn
+ * (drive-detail.functions.ts) queries the drive row + its per-sample telemetry
+ * and hands the raw payload here; this turns it into display-ready stats and
+ * chart series in the design's canonical units (distance km, speed km/h, temp
+ * °C, elevation m, energy kWh). The route applies the user's unit selection at
+ * the formatter boundary, exactly like dashboard-vm.ts.
+ *
+ * No React / no server imports — unit-testable (see drive-detail-vm.test.ts).
+ */
+import type { DriveDetailPayload } from '../functions/drive-detail.functions'
+
+const KM_PER_MI = 1.60934
+const miToKm = (mi: number) => mi * KM_PER_MI
+const whPerMiToWhKm = (wpm: number) => wpm / KM_PER_MI
+
+function round(n: number, d = 0): number {
+  const f = 10 ** d
+  return Math.round(n * f) / f
+}
+
+export interface Pt {
+  /** Elapsed minutes from the drive start. */
+  x: number
+  y: number
+}
+
+export interface DriveDetailSeries {
+  /** Battery state-of-charge (%) over time. */
+  battery: Pt[]
+  /** Speed (km/h, canonical) over time. */
+  speedKph: Pt[]
+  /** Elevation (m) over time. */
+  elevationM: Pt[]
+  /** Cabin (interior) temperature (°C) over time. */
+  insideC: Pt[]
+  /** Outside (exterior) temperature (°C) over time. */
+  outsideC: Pt[]
+}
+
+export interface DriveDetailVM {
+  found: boolean
+  title: string
+  /** Date + time range, e.g. "Jun 18 · 2:05 – 2:51 PM". */
+  subtitle: string
+  startPlace: string | null
+  endPlace: string | null
+  distKm: number
+  durMin: number
+  avgKph: number
+  maxKph: number | null
+  kwh: number | null
+  /** Drive consumption in Wh/km (canonical); null when not computed. */
+  effWhKm: number | null
+  batteryStart: number | null
+  batteryEnd: number | null
+  /** Total climb / descent over the drive (m). */
+  ascentM: number | null
+  descentM: number | null
+  /** Highest elevation reached (m), from the sample stream. */
+  peakElevM: number | null
+  insideAvgC: number | null
+  outsideAvgC: number | null
+  /** Estimated energy cost (energy × rate × loss); null when no rate configured. */
+  estCost: { amount: number; currency: string } | null
+  hasGps: boolean
+  series: DriveDetailSeries
+}
+
+const EMPTY_SERIES: DriveDetailSeries = {
+  battery: [],
+  speedKph: [],
+  elevationM: [],
+  insideC: [],
+  outsideC: [],
+}
+
+/**
+ * Evenly stride `rows` down to at most `max` items, always keeping the first and
+ * last (so a chart's endpoints stay anchored). Returns a copy; consecutive
+ * duplicates introduced by rounding are dropped. Used server-side to bound the
+ * per-sample payload of long imported drives.
+ */
+export function downsampleSeries<T>(rows: T[], max: number): T[] {
+  if (max < 2 || rows.length <= max) return rows.slice()
+  const out: T[] = []
+  const step = (rows.length - 1) / (max - 1)
+  for (let i = 0; i < max; i++) out.push(rows[Math.round(i * step)])
+  return out.filter((v, i) => i === 0 || v !== out[i - 1])
+}
+
+/** "0m" / "12m" / "1h 4m" — tz-independent elapsed-time label for chart x-axes. */
+export function fmtElapsedMin(min: number): string {
+  const m = Math.max(0, Math.round(min))
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  const rem = m % 60
+  return rem ? `${h}h ${rem}m` : `${h}h`
+}
+
+function dayLabel(iso: string, tz?: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
+}
+function clock(iso: string, tz?: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
+}
+
+export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetailVM {
+  const d = p.drive
+  if (!d) {
+    return {
+      found: false,
+      title: 'Drive',
+      subtitle: '',
+      startPlace: null,
+      endPlace: null,
+      distKm: 0,
+      durMin: 0,
+      avgKph: 0,
+      maxKph: null,
+      kwh: null,
+      effWhKm: null,
+      batteryStart: null,
+      batteryEnd: null,
+      ascentM: null,
+      descentM: null,
+      peakElevM: null,
+      insideAvgC: null,
+      outsideAvgC: null,
+      estCost: null,
+      hasGps: false,
+      series: EMPTY_SERIES,
+    }
+  }
+
+  const distKm = d.distance_mi != null ? miToKm(d.distance_mi) : 0
+  const durMin = d.duration_s != null ? Math.round(d.duration_s / 60) : 0
+  const hours = d.duration_s != null && d.duration_s > 0 ? d.duration_s / 3600 : 0
+  const avgKph = hours > 0 && d.distance_mi != null ? round(miToKm(d.distance_mi) / hours) : 0
+
+  const series: DriveDetailSeries = {
+    battery: p.samples.filter((s) => s.battery != null).map((s) => ({ x: s.tMin, y: s.battery as number })),
+    speedKph: p.samples
+      .filter((s) => s.speedMph != null)
+      .map((s) => ({ x: s.tMin, y: round((s.speedMph as number) * KM_PER_MI, 1) })),
+    elevationM: p.samples.filter((s) => s.elevationM != null).map((s) => ({ x: s.tMin, y: s.elevationM as number })),
+    insideC: p.samples.filter((s) => s.insideC != null).map((s) => ({ x: s.tMin, y: s.insideC as number })),
+    outsideC: p.samples.filter((s) => s.outsideC != null).map((s) => ({ x: s.tMin, y: s.outsideC as number })),
+  }
+
+  // Max speed: prefer the drive's recorded peak, else the highest sample.
+  let maxMph = d.speed_max_mph ?? -Infinity
+  for (const s of p.samples) if (s.speedMph != null && s.speedMph > maxMph) maxMph = s.speedMph
+  const maxKph = Number.isFinite(maxMph) ? round(maxMph * KM_PER_MI) : null
+
+  const peakElevM = series.elevationM.length ? Math.max(...series.elevationM.map((q) => q.y)) : null
+
+  const s = d.startLocation
+  const e = d.endLocation
+  const place = s && e ? (s === e ? s : `${s} → ${e}`) : e || s || null
+
+  const sDay = dayLabel(d.started_at, tz)
+  const sClock = clock(d.started_at, tz)
+  const eDay = d.ended_at ? dayLabel(d.ended_at, tz) : null
+  const eClock = d.ended_at ? clock(d.ended_at, tz) : null
+  const subtitle = d.ended_at
+    ? sDay === eDay
+      ? `${sDay} · ${sClock} – ${eClock}`
+      : `${sDay} ${sClock} – ${eDay} ${eClock}`
+    : `${sDay} · ${sClock}`
+
+  return {
+    found: true,
+    title: place ?? `${sDay} · ${sClock}`,
+    subtitle,
+    startPlace: s,
+    endPlace: e,
+    distKm: round(distKm, 1),
+    durMin,
+    avgKph,
+    maxKph,
+    kwh: d.energy_used_kwh != null ? round(d.energy_used_kwh, 1) : null,
+    effWhKm: d.wh_per_mi != null && d.wh_per_mi > 0 ? round(whPerMiToWhKm(d.wh_per_mi)) : null,
+    batteryStart: d.start_battery_level,
+    batteryEnd: d.end_battery_level,
+    ascentM: d.ascent,
+    descentM: d.descent,
+    peakElevM,
+    insideAvgC: d.inside_temp_avg,
+    outsideAvgC: d.outside_temp_avg,
+    estCost: p.estCost ? { amount: round(p.estCost.amount, 2), currency: p.estCost.currency } : null,
+    hasGps: p.points.length >= 1,
+    series,
+  }
+}

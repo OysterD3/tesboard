@@ -51,6 +51,13 @@ export function fmtPres(u: Units, bar: number): number {
 export function presUnit(u: Units): string {
   return u.pres === 'psi' ? 'psi' : 'bar'
 }
+/** Elevation: canonical metres → feet (imperial distance) or metres (metric). */
+export function fmtElev(u: Units, m: number): number {
+  return u.dist === 'mi' ? r(m * 3.28084) : r(m)
+}
+export function elevUnit(u: Units): string {
+  return u.dist === 'mi' ? 'ft' : 'm'
+}
 /** Wh/km → the selected efficiency unit (mi/kWh or Wh/km). */
 export function effFromWhKm(u: Units, whkm: number): number {
   if (u.eff === 'mi') return r(1000 / whkm / 1.60934, 1)
