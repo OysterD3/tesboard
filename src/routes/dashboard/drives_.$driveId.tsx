@@ -189,7 +189,7 @@ function DriveDetailPage() {
               <StatTile icon={ICON.analytics} label="Total" value={vm.ascentM != null ? `+${fmtElev(u, vm.ascentM)}` : DASH} unit={vm.ascentM != null ? elevUnit(u) : ''} accent={SECTION.insights} />
               <StatTile icon={ICON.mountain} label="Peak" value={vm.peakElevM != null ? `${fmtElev(u, vm.peakElevM)}` : DASH} unit={vm.peakElevM != null ? elevUnit(u) : ''} accent={SECTION.insights} />
             </TileRow>
-            <Chart points={vm.series.elevationM} color={SECTION.insights} formatX={fmtX} formatY={(m) => `${fmtElev(u, m)}`} unitY={elevUnit(u)} empty="No elevation yet — tap “Fill elevation” on the Drives list to derive it from GPS." />
+            <Chart points={vm.series.elevationM} color={SECTION.insights} formatX={fmtX} formatY={(m) => `${fmtElev(u, m)}`} unitY={elevUnit(u)} empty="No elevation for this drive (no GPS fixes recorded, or the lookup was unavailable)." />
           </SectionCard>
 
           {/* Range efficiency */}

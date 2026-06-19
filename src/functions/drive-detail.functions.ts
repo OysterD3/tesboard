@@ -14,6 +14,7 @@ import { withDb, type Db } from '../server/db'
 import { address, driveSession, electricityRate, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
 import { parseTouSchedule, touWeightedRate } from '../server/cost'
+import { fillElevations } from '../server/elevation'
 import { downsampleSeries } from '../lib/drive-detail-vm'
 import type { DriveSession, ElectricityRate } from '../types/db'
 import type { DriveWithLocation } from './drives.functions'
@@ -115,6 +116,7 @@ export async function getDriveDetailCore(
   // Telemetry stream for the drive window, oldest-first.
   const snaps = await db
     .select({
+      id: vehicleSnapshot.id,
       at: vehicleSnapshot.recorded_at,
       batt: vehicleSnapshot.battery_level,
       ubatt: vehicleSnapshot.usable_battery_level,
@@ -135,6 +137,21 @@ export async function getDriveDetailCore(
       ),
     )
     .orderBy(asc(vehicleSnapshot.recorded_at))
+
+  // Auto-resolve elevation for this drive's GPS fixes that don't have it yet
+  // (the Fleet API has no altitude). Bounded to this drive's window — a couple of
+  // Open-Meteo requests at most — and idempotent, so the elevation chart fills in
+  // the first time the drive is opened instead of waiting on a manual backfill.
+  const needElev = snaps
+    .filter((s) => s.ele == null && s.lat != null && s.lng != null)
+    .map((s) => ({ id: s.id, lat: s.lat as number, lng: s.lng as number }))
+  if (needElev.length > 0) {
+    const { byId } = await fillElevations(db, userId, needElev, 4)
+    for (const s of snaps) {
+      const e = byId.get(s.id)
+      if (e != null) s.ele = e
+    }
+  }
 
   const startMs = new Date(drive.started_at).getTime()
 

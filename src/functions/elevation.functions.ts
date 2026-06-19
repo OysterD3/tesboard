@@ -10,15 +10,14 @@
  * elevation chart + peak/ascent/descent populate for live-polled drives too.
  */
 import { createServerFn } from '@tanstack/react-start'
-import { and, count, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, count, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { authMiddleware } from '../server/auth-middleware'
 import { withDb, type Db } from '../server/db'
 import { vehicleSnapshot } from '../server/schema'
-import { ELEVATION_BATCH, lookupElevations } from '../server/elevation'
+import { ELEVATION_BATCH, fillElevations } from '../server/elevation'
 
 /** Open-Meteo requests per invocation (≥1 batch of up to 100 coords each). */
 const MAX_BATCHES = 5
-const NETWORK_GAP_MS = 400
 const SCAN = ELEVATION_BATCH * MAX_BATCHES
 
 export interface ElevationBackfillResult {
@@ -29,8 +28,6 @@ export interface ElevationBackfillResult {
   /** Snapshots still missing elevation after this run (have GPS, no elevation). */
   remaining: number
 }
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 export const backfillElevation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
@@ -53,35 +50,10 @@ async function backfillElevationCore(db: Db, userId: string): Promise<ElevationB
     .orderBy(desc(vehicleSnapshot.recorded_at))
     .limit(SCAN)
 
-  let filled = 0
-  let networkCalls = 0
-  for (let i = 0; i < rows.length; i += ELEVATION_BATCH) {
-    const chunk = rows.slice(i, i + ELEVATION_BATCH)
-    if (networkCalls > 0) await sleep(NETWORK_GAP_MS)
-    const els = await lookupElevations(chunk.map((r) => [r.lat as number, r.lng as number]))
-    networkCalls++
-
-    const pairs: { id: number; ele: number }[] = []
-    for (let j = 0; j < chunk.length; j++) {
-      const e = els[j]
-      if (e != null) pairs.push({ id: chunk[j].id, ele: Math.round(e) })
-    }
-    if (pairs.length === 0) continue
-
-    // One bulk update per batch: join the snapshots to a VALUES list by id. The
-    // user_id predicate keeps the write scoped even though the ids are the user's.
-    const valuesSql = sql.join(
-      pairs.map((p) => sql`(${p.id}::bigint, ${p.ele}::int)`),
-      sql`, `,
-    )
-    await db.execute(sql`
-      update vehicle_snapshot as v
-      set elevation_m = d.ele
-      from (values ${valuesSql}) as d(id, ele)
-      where v.id = d.id and v.user_id = ${userId}
-    `)
-    filled += pairs.length
-  }
+  const fillRows = rows
+    .filter((r) => r.lat != null && r.lng != null)
+    .map((r) => ({ id: r.id, lat: r.lat as number, lng: r.lng as number }))
+  const { filled, batches } = await fillElevations(db, userId, fillRows, MAX_BATCHES)
 
   const rem = await db
     .select({ c: count() })
@@ -94,5 +66,5 @@ async function backfillElevationCore(db: Db, userId: string): Promise<ElevationB
         isNull(vehicleSnapshot.elevation_m),
       ),
     )
-  return { filled, networkCalls, remaining: rem[0]?.c ?? 0 }
+  return { filled, networkCalls: batches, remaining: rem[0]?.c ?? 0 }
 }
