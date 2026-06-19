@@ -16,6 +16,8 @@
     "tesla:register": "node scripts/tesla-register.mjs",
     "import:teslamate": "node scripts/import-teslamate.mjs",
     "import:tessie": "node scripts/import-tessie.mjs",
+    "import:quickcharge": "node scripts/import-quickcharge.mjs",
+    "merge:charges": "node scripts/merge-charges.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "test": "vitest run"

@@ -71,7 +71,8 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
 }
 
 export function SourceBadge({ source, costSource }: { source: string; costSource: string }) {
-  const isBilled = costSource === 'tesla_billed'
+  // Authoritative cost (operator-billed or imported receipt) vs estimated-from-rate.
+  const isBilled = costSource === 'tesla_billed' || costSource === 'quickcharge'
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
@@ -79,7 +80,13 @@ export function SourceBadge({ source, costSource }: { source: string; costSource
         background: source === 'supercharger' ? 'rgba(79,184,178,0.18)' : 'rgba(47,106,74,0.14)',
         color: 'var(--sea-ink)',
       }}
-      title={isBilled ? 'Cost billed by Tesla (authoritative)' : 'Cost estimated from your electricity rate'}
+      title={
+        isBilled
+          ? costSource === 'quickcharge'
+            ? 'Cost from charging-operator receipt (authoritative)'
+            : 'Cost billed by Tesla (authoritative)'
+          : 'Cost estimated from your electricity rate'
+      }
     >
       {source === 'supercharger' ? 'Supercharger' : source === 'home' ? 'Home' : 'Other'}
       {isBilled ? ' · billed' : ' · est.'}

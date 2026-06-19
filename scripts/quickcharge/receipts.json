@@ -1,0 +1,24 @@
+{
+  "_comment": "QuickCharge AC charging receipts at Lakeville Residence (Malaysia, RM/MYR ~1.00/kWh). Transcribed from the in-app 'Charging Receipt' cards. 'date' is the LOCAL (UTC+8) date the charge STARTED (used to match the car's sessions that day); 'usageKwh' is the grid-side meter energy (receipt 'Usage' Wh / 1000); 'spent' is the authoritative RM cost. The importer (pnpm import:quickcharge) matches each receipt to the car's charge_session(s) on that local date and applies the authoritative cost (split proportionally when the plug-in was recorded as several sessions). To add a new receipt, append a row here and re-run the importer (idempotent). Keep one receipt per local date — two receipts on the same date are routed to review, not auto-applied. The 18-Jun-2026 screenshot has no receipt number and is omitted to avoid colliding with live polling.",
+  "vin": "LRWYHCFJ0SC383918",
+  "currency": "MYR",
+  "geofence": "Lakeville",
+  "receipts": [
+    { "receiptNo": "42087384", "date": "2026-03-05", "charger": "8wuwc1", "spent": 37.59, "usageKwh": 37.582 },
+    { "receiptNo": "63517851", "date": "2026-03-13", "charger": "8wuwc1", "spent": 28.71, "usageKwh": 28.709 },
+    { "receiptNo": "17960434", "date": "2026-03-17", "charger": "bnrzvw", "spent": 28.28, "usageKwh": 28.284 },
+    { "receiptNo": "13648683", "date": "2026-03-18", "charger": "bnrzvw", "spent": 6.31, "usageKwh": 6.309 },
+    { "receiptNo": "47322359", "date": "2026-03-26", "charger": "bnrzvw", "spent": 46.31, "usageKwh": 46.311 },
+    { "receiptNo": "80243595", "date": "2026-04-11", "charger": "8wuwc1", "spent": 39.50, "usageKwh": 39.502 },
+    { "receiptNo": "76531530", "date": "2026-04-18", "charger": "8wuwc1", "spent": 44.03, "usageKwh": 44.032 },
+    { "receiptNo": "85333111", "date": "2026-04-24", "charger": "8wuwc1", "spent": 42.62, "usageKwh": 42.617 },
+    { "receiptNo": "65518959", "date": "2026-04-29", "charger": "bnrzvw", "spent": 50.09, "usageKwh": 50.092 },
+    { "receiptNo": "13191709", "date": "2026-05-03", "charger": "8wuwc1", "spent": 34.35, "usageKwh": 34.346 },
+    { "receiptNo": "44120434", "date": "2026-05-09", "charger": "bnrzvw", "spent": 38.21, "usageKwh": 38.209 },
+    { "receiptNo": "43883136", "date": "2026-05-15", "charger": "8wuwc1", "spent": 37.96, "usageKwh": 37.958 },
+    { "receiptNo": "39301968", "date": "2026-05-23", "charger": "bnrzvw", "spent": 45.72, "usageKwh": 45.718 },
+    { "receiptNo": "85698020", "date": "2026-05-27", "charger": "8wuwc1", "spent": 44.18, "usageKwh": 44.182 },
+    { "receiptNo": "82436754", "date": "2026-06-01", "charger": "8wuwc1", "spent": 39.35, "usageKwh": 39.354 },
+    { "receiptNo": "83071720", "date": "2026-06-09", "charger": "bnrzvw", "spent": 41.04, "usageKwh": 41.039 }
+  ]
+}

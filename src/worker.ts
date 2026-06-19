@@ -13,6 +13,7 @@
 import startEntry from '@tanstack/react-start/server-entry'
 import { runPollCycle } from './server/poller'
 import { reconcileAllUsers } from './server/reconcile'
+import { mergeChargeFragmentsAllUsers } from './server/charge-merge'
 import { bridgeEnv } from './server/env-bridge'
 
 // Durable Object class must be exported from the worker's main module.
@@ -52,6 +53,14 @@ export default {
       (async () => {
         if (event.cron === RECONCILE_CRON) {
           await reconcileAllUsers()
+          // Collapse stop/start charge fragments into one row per plug-in. Runs
+          // after reconcile so newly-billed rows are folded in; idempotent, so a
+          // failure here just retries next hour. Isolated from reconcile's result.
+          try {
+            await mergeChargeFragmentsAllUsers()
+          } catch {
+            /* best-effort; next hourly tick retries */
+          }
           return
         }
         const result = await runPollCycle()

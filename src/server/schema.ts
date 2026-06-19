@@ -199,7 +199,7 @@ export const chargeSession = pgTable(
     address_id: bigint('address_id', { mode: 'number' }),
     cost_amount: numeric('cost_amount', { precision: 12, scale: 4, mode: 'number' }),
     cost_currency: text('cost_currency'),
-    // 'computed' | 'tesla_billed' | 'tesla_billed_free' | 'imported_teslamate' | 'geofence'.
+    // 'computed' | 'tesla_billed' | 'tesla_billed_free' | 'imported_teslamate' | 'geofence' | 'manual' | 'quickcharge'.
     cost_source: text('cost_source').notNull().default('computed'),
     rate_applied: numeric('rate_applied', { precision: 12, scale: 6, mode: 'number' }),
     tesla_charge_session_id: text('tesla_charge_session_id'),

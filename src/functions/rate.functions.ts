@@ -179,7 +179,7 @@ export const reclassifyCharges = createServerFn({ method: 'POST' })
       .where(and(eq(chargeSession.user_id, userId), isNotNull(chargeSession.ended_at)))) as ChargeSession[]
 
     // Authoritative / imported costs are never rewritten.
-    const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate', 'manual'])
+    const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate', 'manual', 'quickcharge'])
 
     let reclassified = 0
     let recosted = 0
@@ -293,7 +293,7 @@ export const repairChargeEnergy = createServerFn({ method: 'POST' })
         .select()
         .from(chargeSession)
         .where(and(eq(chargeSession.user_id, userId), isNotNull(chargeSession.ended_at)))) as ChargeSession[]
-      const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate', 'manual'])
+      const FROZEN = new Set(['tesla_billed', 'tesla_billed_free', 'imported_teslamate', 'manual', 'quickcharge'])
 
       let scanned = 0
       let repaired = 0

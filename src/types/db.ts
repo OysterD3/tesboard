@@ -31,6 +31,9 @@ export type CostSource =
   | 'imported_teslamate'
   | 'geofence'
   | 'manual'
+  // Authoritative cost imported from a third-party charging-operator receipt
+  // (e.g. QuickCharge AC sessions). Frozen like the other authoritative sources.
+  | 'quickcharge'
 export type ChargeLocationType = 'home' | 'away' | 'supercharger' | 'unknown'
 export type BillingType = 'per_kwh' | 'per_minute' | 'per_session'
 export type VehicleStateKind = 'online' | 'asleep' | 'offline' | 'driving' | 'charging'
