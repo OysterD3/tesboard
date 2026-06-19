@@ -174,6 +174,15 @@ function DriveDetailPage() {
             <Chart points={vm.series.speedKph} color={COLOR} formatX={fmtX} formatY={(kph) => `${fmtSpeed(u, kph)}`} unitY={speedUnit(u)} empty="No speed samples recorded for this drive." />
           </SectionCard>
 
+          {/* Power / regen */}
+          <SectionCard title="Power">
+            <TileRow>
+              <StatTile icon={ICON.charging} fill label="Peak power" value={vm.peakPowerKw != null ? `${vm.peakPowerKw}` : DASH} unit={vm.peakPowerKw != null ? 'kW' : ''} accent={COLOR} />
+              <StatTile icon={ICON.leaf} label="Peak regen" value={vm.peakRegenKw != null ? `${vm.peakRegenKw}` : DASH} unit={vm.peakRegenKw != null ? 'kW' : ''} accent={SECTION.insights} />
+            </TileRow>
+            <Chart points={vm.series.powerKw} color={COLOR} formatX={fmtX} formatY={(kw) => `${Math.round(kw)}`} unitY="kW" baseline={0} empty="No power samples recorded for this drive (regen needs denser data than 2-min polling)." />
+          </SectionCard>
+
           {/* Battery */}
           <SectionCard title="Battery">
             <TileRow>
@@ -371,6 +380,7 @@ function Chart({
   formatY,
   unitY,
   empty,
+  baseline,
 }: {
   points: SeriesPoint[]
   color: string
@@ -378,9 +388,10 @@ function Chart({
   formatY: (y: number) => string
   unitY: string
   empty: string
+  baseline?: number
 }): ReactNode {
   if (points.length >= 2) {
-    return <SeriesChart points={points} color={color} formatX={formatX} formatY={formatY} unitY={unitY} />
+    return <SeriesChart points={points} color={color} formatX={formatX} formatY={formatY} unitY={unitY} baseline={baseline} />
   }
   return (
     <div

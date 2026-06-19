@@ -33,6 +33,8 @@ export interface DriveSampleRaw {
   insideC: number | null
   /** Outside (exterior) temperature (°C). */
   outsideC: number | null
+  /** Instantaneous drive power (kW); negative = regen. */
+  powerKw: number | null
 }
 
 export interface DriveDetailPayload {
@@ -126,6 +128,7 @@ export async function getDriveDetailCore(
       outT: vehicleSnapshot.outside_temp,
       lat: vehicleSnapshot.latitude,
       lng: vehicleSnapshot.longitude,
+      pwr: vehicleSnapshot.power_kw,
     })
     .from(vehicleSnapshot)
     .where(
@@ -177,6 +180,7 @@ export async function getDriveDetailCore(
     elevationM: s.ele ?? null,
     insideC: s.inT ?? null,
     outsideC: s.outT ?? null,
+    powerKw: s.pwr ?? null,
   }))
   const samples = downsampleSeries(raw, MAX_SAMPLES)
 

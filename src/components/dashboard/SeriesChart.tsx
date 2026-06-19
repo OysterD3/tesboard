@@ -25,6 +25,7 @@ export function SeriesChart({
   unitX = '',
   unitY = '',
   height = 150,
+  baseline,
 }: {
   points: SeriesPoint[]
   color: string
@@ -35,6 +36,9 @@ export function SeriesChart({
   /** Unit suffix for the y value in the hover tooltip (e.g. "mph"). */
   unitY?: string
   height?: number
+  /** When set (e.g. 0 for power), the area fills to this y-value and a reference
+   *  line is drawn there — so values below it (regen) read below the baseline. */
+  baseline?: number
 }) {
   const clip = useId().replace(/:/g, '')
   const gid = 'sArea-' + clip
@@ -76,8 +80,12 @@ export function SeriesChart({
   const sy = (y: number) => MT + (1 - (y - yMin) / (yMax - yMin)) * plotH
 
   const linePath = 'M' + valid.map((p) => `${round(sx(p.x), 1)},${round(sy(p.y), 1)}`).join(' L')
-  const baseline = MT + plotH
-  const areaPath = `${linePath} L${round(sx(xMax), 1)},${baseline} L${round(sx(xMin), 1)},${baseline} Z`
+  const bottom = MT + plotH
+  // Fill the area down to the baseline value (clamped to the plot) when given,
+  // else to the plot floor. Draw a reference line at the baseline if it's in range.
+  const baseY = baseline != null ? Math.max(MT, Math.min(bottom, sy(baseline))) : bottom
+  const showBaseline = baseline != null && baseline > yMin && baseline < yMax
+  const areaPath = `${linePath} L${round(sx(xMax), 1)},${round(baseY, 1)} L${round(sx(xMin), 1)},${round(baseY, 1)} Z`
   const gridY = [yMax, (yMax + yMin) / 2, yMin]
   const showDots = valid.length <= 60
 
@@ -154,6 +162,11 @@ export function SeriesChart({
         {formatX(xMax)}
       </text>
 
+      {/* Baseline reference (e.g. the 0 kW line for power, separating drive/regen). */}
+      {showBaseline && (
+        <line x1={ML} y1={sy(baseline as number)} x2={W - MR} y2={sy(baseline as number)} stroke={TD} strokeOpacity="0.4" strokeWidth="1" />
+      )}
+
       <g clipPath={`url(#${clip})`}>
         <path d={areaPath} fill={`url(#${gid})`} />
         <path d={linePath} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
@@ -179,7 +192,7 @@ export function SeriesChart({
         const by = Math.max(MT, Math.min(H - th - 2, byPref))
         return (
           <g pointerEvents="none">
-            <line x1={cx} y1={MT} x2={cx} y2={baseline} stroke={color} strokeOpacity="0.5" strokeWidth="1" />
+            <line x1={cx} y1={MT} x2={cx} y2={bottom} stroke={color} strokeOpacity="0.5" strokeWidth="1" />
             <circle cx={cx} cy={cy} r="7" fill={color} fillOpacity="0.18" />
             <circle cx={cx} cy={cy} r="4" fill={color} />
             <rect x={bx} y={by} width={tw} height={th} rx="7" fill="var(--card,#fff)" stroke="var(--border,rgba(0,0,0,0.1))" />

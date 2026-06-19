@@ -49,7 +49,7 @@ function drive(over: Partial<DriveWithLocation> = {}): DriveWithLocation {
 }
 
 function sample(over: Partial<DriveSampleRaw> = {}): DriveSampleRaw {
-  return { tMin: 0, battery: null, speedMph: null, elevationM: null, insideC: null, outsideC: null, ...over }
+  return { tMin: 0, battery: null, speedMph: null, elevationM: null, insideC: null, outsideC: null, powerKw: null, ...over }
 }
 
 function payload(over: Partial<DriveDetailPayload> = {}): DriveDetailPayload {
@@ -156,6 +156,32 @@ describe('buildDriveDetail', () => {
     expect(vm.peakElevM).toBe(140)
     expect(vm.series.insideC).toEqual([{ x: 0, y: 20 }])
     expect(vm.series.outsideC).toEqual([{ x: 0, y: 15 }])
+  })
+
+  it('builds the power series and derives peak power + peak regen from samples', () => {
+    const vm = buildDriveDetail(
+      payload({
+        drive: drive({ power_max_kw: null, power_min_kw: null }),
+        samples: [
+          sample({ tMin: 0, powerKw: 0 }),
+          sample({ tMin: 5, powerKw: 80 }), // drawing power
+          sample({ tMin: 10, powerKw: -28 }), // regen
+        ],
+      }),
+    )
+    expect(vm.series.powerKw).toEqual([
+      { x: 0, y: 0 },
+      { x: 5, y: 80 },
+      { x: 10, y: -28 },
+    ])
+    expect(vm.peakPowerKw).toBe(80)
+    expect(vm.peakRegenKw).toBe(28) // most-negative power, as a positive magnitude
+  })
+
+  it('prefers the stored power aggregates and reports no regen when never negative', () => {
+    const vm = buildDriveDetail(payload({ drive: drive({ power_max_kw: 150, power_min_kw: 5 }), samples: [sample({ powerKw: 40 })] }))
+    expect(vm.peakPowerKw).toBe(150) // stored max wins
+    expect(vm.peakRegenKw).toBeNull() // min power 5 kW ≥ 0 → no regen captured
   })
 
   it('passes the estimated cost through, rounded to cents', () => {

@@ -36,6 +36,8 @@ export interface DriveDetailSeries {
   insideC: Pt[]
   /** Outside (exterior) temperature (°C) over time. */
   outsideC: Pt[]
+  /** Instantaneous drive power (kW) over time; negative = regen. */
+  powerKw: Pt[]
 }
 
 export interface DriveDetailVM {
@@ -64,6 +66,10 @@ export interface DriveDetailVM {
   peakElevM: number | null
   insideAvgC: number | null
   outsideAvgC: number | null
+  /** Peak drive power (kW) observed over the drive. */
+  peakPowerKw: number | null
+  /** Peak regen power (kW, positive magnitude) — the strongest negative power. */
+  peakRegenKw: number | null
   /** Rated range consumed over the drive (km), from the SOC range readings. */
   ratedUsedKm: number | null
   /** Range efficiency: actual distance ÷ rated range used, as a percent. */
@@ -80,6 +86,7 @@ const EMPTY_SERIES: DriveDetailSeries = {
   elevationM: [],
   insideC: [],
   outsideC: [],
+  powerKw: [],
 }
 
 /**
@@ -171,6 +178,8 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
       peakElevM: null,
       insideAvgC: null,
       outsideAvgC: null,
+      peakPowerKw: null,
+      peakRegenKw: null,
       ratedUsedKm: null,
       rangeEffPct: null,
       estCost: null,
@@ -192,12 +201,25 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
     elevationM: p.samples.filter((s) => s.elevationM != null).map((s) => ({ x: s.tMin, y: s.elevationM as number })),
     insideC: p.samples.filter((s) => s.insideC != null).map((s) => ({ x: s.tMin, y: s.insideC as number })),
     outsideC: p.samples.filter((s) => s.outsideC != null).map((s) => ({ x: s.tMin, y: s.outsideC as number })),
+    powerKw: p.samples.filter((s) => s.powerKw != null).map((s) => ({ x: s.tMin, y: s.powerKw as number })),
   }
 
   // Max speed: prefer the drive's recorded peak, else the highest sample.
   let maxMph = d.speed_max_mph ?? -Infinity
   for (const s of p.samples) if (s.speedMph != null && s.speedMph > maxMph) maxMph = s.speedMph
   const maxKph = Number.isFinite(maxMph) ? round(maxMph * KM_PER_MI) : null
+
+  // Power: prefer the drive's stored peaks (imported drives), else the sample
+  // extremes (live). Peak regen is the most negative power, shown as a magnitude.
+  let maxPow = d.power_max_kw ?? -Infinity
+  let minPow = d.power_min_kw ?? Infinity
+  for (const s of p.samples) {
+    if (s.powerKw == null) continue
+    if (s.powerKw > maxPow) maxPow = s.powerKw
+    if (s.powerKw < minPow) minPow = s.powerKw
+  }
+  const peakPowerKw = Number.isFinite(maxPow) ? round(maxPow) : null
+  const peakRegenKw = Number.isFinite(minPow) && minPow < 0 ? round(-minPow) : null
 
   const peakElevM = series.elevationM.length ? Math.max(...series.elevationM.map((q) => q.y)) : null
   // Imported drives carry authoritative ascent/descent (dense source data); for
@@ -247,6 +269,8 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
     peakElevM,
     insideAvgC: d.inside_temp_avg,
     outsideAvgC: d.outside_temp_avg,
+    peakPowerKw,
+    peakRegenKw,
     ratedUsedKm,
     rangeEffPct,
     estCost: p.estCost ? { amount: round(p.estCost.amount, 2), currency: p.estCost.currency } : null,
