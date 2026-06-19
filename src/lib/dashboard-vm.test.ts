@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildChargingReview } from './dashboard-vm'
+import { buildChargingReview, buildDrives } from './dashboard-vm'
 import type { ChargingPayload } from '../functions/charging.functions'
 import type { ChargeWithLocation } from '../functions/charging.functions'
+import type { DrivesPayload, DriveWithLocation } from '../functions/drives.functions'
 
 // Minimal session factory — only the fields buildChargingReview reads.
 function session(over: Partial<ChargeWithLocation>): ChargeWithLocation {
@@ -80,5 +81,60 @@ describe('buildChargingReview', () => {
 
   it('returns an empty review with no sessions', () => {
     expect(buildChargingReview(payload([])).hasData).toBe(false)
+  })
+})
+
+// Minimal drive factory — only the fields buildDrives reads.
+function drive(over: Partial<DriveWithLocation>): DriveWithLocation {
+  return {
+    id: 1,
+    vin: 'V',
+    user_id: 'u',
+    started_at: '2026-04-20T19:14:00Z',
+    ended_at: '2026-04-20T19:32:00Z',
+    distance_mi: 3.42,
+    duration_s: 1080,
+    start_lat: 3.1,
+    start_lng: 101.7,
+    end_lat: 3.2,
+    end_lng: 101.65,
+    start_battery_level: 58,
+    end_battery_level: 56,
+    energy_used_kwh: 1.2,
+    wh_per_mi: 300,
+    startLocation: 'Kuala Lumpur, Malaysia',
+    endLocation: 'Batu Caves, Kuala Lumpur',
+    ...over,
+  } as DriveWithLocation
+}
+
+const drivesPayload = (drives: DriveWithLocation[]): DrivesPayload => ({
+  drives,
+  stats: { driveCount: drives.length, totalMiles: 0, totalEnergyKwh: 0, avgWhPerMi: null },
+})
+
+describe('buildDrives', () => {
+  it('exposes per-endpoint place, battery and tz-safe stamps', () => {
+    const [d] = buildDrives(drivesPayload([drive({})]), 'UTC')
+    expect(d.startPlace).toBe('Kuala Lumpur, Malaysia')
+    expect(d.endPlace).toBe('Batu Caves, Kuala Lumpur')
+    expect(d.startBattery).toBe(58)
+    expect(d.endBattery).toBe(56)
+    expect(d.startStamp).toBe('Mon, Apr 20 · 7:14 PM')
+    expect(d.endStamp).toBe('Mon, Apr 20 · 7:32 PM')
+  })
+
+  it('leaves endStamp null for an in-progress drive', () => {
+    const [d] = buildDrives(drivesPayload([drive({ ended_at: null, end_battery_level: null, endLocation: null })]), 'UTC')
+    expect(d.endStamp).toBeNull()
+    expect(d.endBattery).toBeNull()
+    expect(d.endPlace).toBeNull()
+    expect(d.startStamp).toBe('Mon, Apr 20 · 7:14 PM')
+  })
+
+  it('keeps null places null (un-geocoded live drive) for the route to label', () => {
+    const [d] = buildDrives(drivesPayload([drive({ startLocation: null, endLocation: null })]), 'UTC')
+    expect(d.startPlace).toBeNull()
+    expect(d.endPlace).toBeNull()
   })
 })

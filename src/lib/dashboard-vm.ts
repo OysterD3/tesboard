@@ -61,6 +61,21 @@ function monthParts(iso: string | null, tz?: string): { monthKey: string; monthL
   }
 }
 
+/**
+ * Compact "Mon, Apr 20 · 7:14 PM" stamp for a drive-list endpoint — weekday +
+ * date + time, tz-safe (same `tz` discipline as fmtWhen). Null for a missing /
+ * unparseable timestamp (e.g. an in-progress drive's end).
+ */
+function stampShort(iso: string | null, tz?: string): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const wd = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz })
+  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
+  const tm = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
+  return `${wd}, ${md} · ${tm}`
+}
+
 function relativeAgo(iso: string | null): string | null {
   if (!iso) return null
   const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
@@ -183,6 +198,15 @@ export interface DriveVM {
   kwh: number | null
   /** Drive consumption in Wh/km (canonical); null when not computed. */
   effWhKm: number | null
+  /** Resolved start/end place names (geofence/address), null until reverse-geocoded. */
+  startPlace: string | null
+  endPlace: string | null
+  /** State of charge (%) at each endpoint. */
+  startBattery: number | null
+  endBattery: number | null
+  /** "Mon, Apr 20 · 7:14 PM" for each endpoint; endStamp null while in progress. */
+  startStamp: string | null
+  endStamp: string | null
   /** Start/end coords the drive row carries (immediate line before the breadcrumb loads). */
   endpoints: [number, number][]
 }
@@ -216,6 +240,12 @@ export function buildDrives(payload: DrivesPayload, tz?: string): DriveVM[] {
       avgKph,
       kwh: d.energy_used_kwh != null ? round(d.energy_used_kwh, 1) : null,
       effWhKm: d.wh_per_mi != null && d.wh_per_mi > 0 ? round(whPerMiToWhKm(d.wh_per_mi)) : null,
+      startPlace: s,
+      endPlace: e,
+      startBattery: d.start_battery_level,
+      endBattery: d.end_battery_level,
+      startStamp: stampShort(d.started_at, tz),
+      endStamp: stampShort(d.ended_at, tz),
       endpoints,
     }
   })
