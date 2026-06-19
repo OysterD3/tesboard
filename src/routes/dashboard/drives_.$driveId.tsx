@@ -272,7 +272,7 @@ function Endpoint({ label, place, dot }: { label: string; place: string | null; 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
       <span style={{ width: 9, height: 9, borderRadius: '50%', background: dot, flex: 'none' }} />
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: TD, width: 34, flex: 'none' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: TD, width: 46, flex: 'none', whiteSpace: 'nowrap' }}>
         {label.toUpperCase()}
       </span>
       <span
