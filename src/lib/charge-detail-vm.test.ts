@@ -112,6 +112,12 @@ describe('buildChargeDetail', () => {
     expect(vm.sinceLastChargeKm).toBeCloseTo(10 * KM_PER_MI, 1)
   })
 
+  it('leaves odometer/since null when the server couldn’t derive them (telemetry gap)', () => {
+    const vm = buildChargeDetail(payload({ odometerMi: null, sinceLastChargeMi: null }))
+    expect(vm.odometerKm).toBeNull()
+    expect(vm.sinceLastChargeKm).toBeNull()
+  })
+
   it('builds per-metric series (range in km), dropping null samples', () => {
     const vm = buildChargeDetail(
       payload({

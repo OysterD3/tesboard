@@ -12,7 +12,7 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte } from 'drizzle-or
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { withDb, type Db } from '../server/db'
-import { address, chargeSession, driveSession, geofence, vehicleSnapshot } from '../server/schema'
+import { address, chargeSession, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
 import { downsampleSeries } from '../lib/drive-detail-vm'
 import type { ChargeSession } from '../types/db'
@@ -153,44 +153,59 @@ export async function getChargeSessionDetailCore(
     if (fix) point = [fix.lat as number, fix.lng as number]
   }
 
-  // Odometer at a given instant = the most recent drive's end_odometer at/before it
-  // (charge_session has no odometer column). Same shared db handle, indexed lookups.
-  const odoAt = async (iso: string): Promise<number | null> => {
+  // Odometer at a given instant = the nearest vehicle_snapshot odometer at/before it
+  // (charge_session has no odometer column; snapshots are recorded every poll, even
+  // while parked/charging, so they're far denser than drive ends). We also return
+  // the reading's timestamp: if the nearest reading is far from the charge there was
+  // a telemetry GAP and the odometer at that charge is genuinely unknown — don't
+  // pretend to know it. Same shared db handle, indexed lookups.
+  const odoAt = async (iso: string): Promise<{ odo: number; at: string } | null> => {
     const r = await db
-      .select({ odo: driveSession.end_odometer })
-      .from(driveSession)
+      .select({ odo: vehicleSnapshot.odometer, at: vehicleSnapshot.recorded_at })
+      .from(vehicleSnapshot)
       .where(
         and(
-          eq(driveSession.user_id, userId),
-          eq(driveSession.vin, charge.vin),
-          isNotNull(driveSession.end_odometer),
-          lte(driveSession.ended_at, iso),
+          eq(vehicleSnapshot.user_id, userId),
+          eq(vehicleSnapshot.vin, charge.vin),
+          isNotNull(vehicleSnapshot.odometer),
+          lte(vehicleSnapshot.recorded_at, iso),
         ),
       )
-      .orderBy(desc(driveSession.ended_at))
+      .orderBy(desc(vehicleSnapshot.recorded_at))
       .limit(1)
-    return r[0]?.odo ?? null
+    return r[0]?.odo != null ? { odo: r[0].odo, at: r[0].at } : null
   }
-  const odometerMi = await odoAt(charge.started_at)
+  // A reading more than a day from the charge means polling/data wasn't running
+  // then — the odometer is stale, so treat it as unknown rather than wrong.
+  const STALE_MS = 24 * 60 * 60 * 1000
+  const fresh = (ref: { at: string } | null, iso: string): boolean =>
+    ref != null && Math.abs(new Date(iso).getTime() - new Date(ref.at).getTime()) <= STALE_MS
 
-  // "Since last charge": odometer now minus odometer at the previous charge's end.
+  const startRef = await odoAt(charge.started_at)
+  const odometerMi = fresh(startRef, charge.started_at) ? startRef!.odo : null
+
+  // "Since last charge": odometer at this charge minus the odometer at the previous
+  // charge. Only when BOTH readings are fresh — else a telemetry gap near either
+  // charge would inflate the distance with mileage that wasn't actually between them.
   let sinceLastChargeMi: number | null = null
-  const prev = await db
-    .select({ ended_at: chargeSession.ended_at, started_at: chargeSession.started_at })
-    .from(chargeSession)
-    .where(
-      and(
-        eq(chargeSession.user_id, userId),
-        eq(chargeSession.vin, charge.vin),
-        lt(chargeSession.started_at, charge.started_at),
-      ),
-    )
-    .orderBy(desc(chargeSession.started_at))
-    .limit(1)
-  const prevEnd = prev[0]?.ended_at ?? prev[0]?.started_at ?? null
-  if (odometerMi != null && prevEnd != null) {
-    const odoPrev = await odoAt(prevEnd)
-    if (odoPrev != null) sinceLastChargeMi = Math.max(0, odometerMi - odoPrev)
+  if (startRef != null && fresh(startRef, charge.started_at)) {
+    const prev = await db
+      .select({ ended_at: chargeSession.ended_at, started_at: chargeSession.started_at })
+      .from(chargeSession)
+      .where(
+        and(
+          eq(chargeSession.user_id, userId),
+          eq(chargeSession.vin, charge.vin),
+          lt(chargeSession.started_at, charge.started_at),
+        ),
+      )
+      .orderBy(desc(chargeSession.started_at))
+      .limit(1)
+    const prevTime = prev[0]?.ended_at ?? prev[0]?.started_at ?? null
+    if (prevTime != null) {
+      const prevRef = await odoAt(prevTime)
+      if (fresh(prevRef, prevTime)) sinceLastChargeMi = Math.max(0, startRef.odo - prevRef!.odo)
+    }
   }
 
   return { charge: chargeWithLoc, samples, point, odometerMi, sinceLastChargeMi }

@@ -118,10 +118,12 @@ function ChargeDetailPage() {
               </button>
               <StatTile icon={ICON.clock} label="Duration" value={fmtDuration(vm.durMin)} accent={COLOR} />
             </TileRow>
-            <TileRow>
-              <StatTile icon={ICON.gauge} label="Odometer" value={vm.odometerKm != null ? `${fmtDist(u, vm.odometerKm, 2)}` : DASH} unit={vm.odometerKm != null ? distUnit(u) : ''} accent={COLOR} />
-              <StatTile icon={ICON.road} label="Since last charge" value={vm.sinceLastChargeKm != null ? `${fmtDist(u, vm.sinceLastChargeKm, 2)}` : DASH} unit={vm.sinceLastChargeKm != null ? distUnit(u) : ''} accent={COLOR} />
-            </TileRow>
+            {(vm.odometerKm != null || vm.sinceLastChargeKm != null) && (
+              <Tiles>
+                {vm.odometerKm != null && <StatTile icon={ICON.gauge} label="Odometer" value={`${fmtDist(u, vm.odometerKm, 2)}`} unit={distUnit(u)} accent={COLOR} />}
+                {vm.sinceLastChargeKm != null && <StatTile icon={ICON.road} label="Since last charge" value={`${fmtDist(u, vm.sinceLastChargeKm, 2)}`} unit={distUnit(u)} accent={COLOR} />}
+              </Tiles>
+            )}
 
             {editing && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 14, borderTop: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
