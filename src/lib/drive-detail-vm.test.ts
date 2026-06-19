@@ -186,6 +186,31 @@ describe('buildDriveDetail', () => {
     expect(vm.title).toBe('Jun 18 · 2:00 PM')
   })
 
+  it('uses the stored ascent/descent when present', () => {
+    const vm = buildDriveDetail(
+      payload({ samples: [sample({ tMin: 0, elevationM: 100 }), sample({ tMin: 10, elevationM: 200 })] }),
+    )
+    expect(vm.ascentM).toBe(150) // drive() fixture's stored ascent wins
+    expect(vm.descentM).toBe(90)
+  })
+
+  it('derives ascent/descent from the elevation series when not stored (live drive)', () => {
+    const vm = buildDriveDetail(
+      payload({
+        drive: drive({ ascent: null, descent: null }),
+        samples: [
+          sample({ tMin: 0, elevationM: 100 }),
+          sample({ tMin: 5, elevationM: 130 }), // +30
+          sample({ tMin: 10, elevationM: 110 }), // -20
+          sample({ tMin: 15, elevationM: 140 }), // +30
+        ],
+      }),
+    )
+    expect(vm.ascentM).toBe(60) // 30 + 30
+    expect(vm.descentM).toBe(20)
+    expect(vm.peakElevM).toBe(140)
+  })
+
   it('converts efficiency to Wh/km', () => {
     const vm = buildDriveDetail(payload())
     expect(vm.effWhKm).toBe(Math.round(300 / KM_PER_MI)) // 300 Wh/mi → ~186 Wh/km

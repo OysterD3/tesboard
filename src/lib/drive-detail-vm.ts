@@ -111,6 +111,19 @@ export function fmtClockStamp(ms: number, tz?: string): string {
   return `${day}, ${time}`
 }
 
+/** Cumulative climb/descent (m) over an elevation series, or null if too short. */
+function cumulativeElevation(points: Pt[]): { ascent: number; descent: number } | null {
+  if (points.length < 2) return null
+  let ascent = 0
+  let descent = 0
+  for (let i = 1; i < points.length; i++) {
+    const delta = points[i].y - points[i - 1].y
+    if (delta > 0) ascent += delta
+    else descent -= delta
+  }
+  return { ascent: Math.round(ascent), descent: Math.round(descent) }
+}
+
 function dayLabel(iso: string, tz?: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })
 }
@@ -167,6 +180,11 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
   const maxKph = Number.isFinite(maxMph) ? round(maxMph * KM_PER_MI) : null
 
   const peakElevM = series.elevationM.length ? Math.max(...series.elevationM.map((q) => q.y)) : null
+  // Imported drives carry authoritative ascent/descent (dense source data); for
+  // live-polled drives those are null, so derive them from the (backfilled)
+  // elevation samples — coarse at the poll cadence, but keeps the stat in step
+  // with the chart instead of showing nothing.
+  const cumElev = cumulativeElevation(series.elevationM)
 
   const s = d.startLocation
   const e = d.endLocation
@@ -196,8 +214,8 @@ export function buildDriveDetail(p: DriveDetailPayload, tz?: string): DriveDetai
     effWhKm: d.wh_per_mi != null && d.wh_per_mi > 0 ? round(whPerMiToWhKm(d.wh_per_mi)) : null,
     batteryStart: d.start_battery_level,
     batteryEnd: d.end_battery_level,
-    ascentM: d.ascent,
-    descentM: d.descent,
+    ascentM: d.ascent ?? cumElev?.ascent ?? null,
+    descentM: d.descent ?? cumElev?.descent ?? null,
     peakElevM,
     insideAvgC: d.inside_temp_avg,
     outsideAvgC: d.outside_temp_avg,
