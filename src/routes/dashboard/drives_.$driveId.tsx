@@ -2,7 +2,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
+import { BatteryGlyph, Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
 import { SeriesChart, type SeriesPoint } from '../../components/dashboard/SeriesChart'
 import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
@@ -177,8 +177,24 @@ function DriveDetailPage() {
           {/* Battery */}
           <SectionCard title="Battery">
             <TileRow>
-              <StatTile icon={ICON.battery} fill label="Start" value={vm.batteryStart != null ? `${vm.batteryStart}` : DASH} unit={vm.batteryStart != null ? '%' : ''} accent={COLOR} />
-              <StatTile icon={ICON.battery} fill label="End" value={vm.batteryEnd != null ? `${vm.batteryEnd}` : DASH} unit={vm.batteryEnd != null ? '%' : ''} accent={COLOR} />
+              <StatTile
+                icon={ICON.battery}
+                fill
+                glyph={vm.batteryStart != null ? <BatteryGlyph pct={vm.batteryStart} color={COLOR} /> : undefined}
+                label="Start"
+                value={vm.batteryStart != null ? `${vm.batteryStart}` : DASH}
+                unit={vm.batteryStart != null ? '%' : ''}
+                accent={COLOR}
+              />
+              <StatTile
+                icon={ICON.battery}
+                fill
+                glyph={vm.batteryEnd != null ? <BatteryGlyph pct={vm.batteryEnd} color={COLOR} /> : undefined}
+                label="End"
+                value={vm.batteryEnd != null ? `${vm.batteryEnd}` : DASH}
+                unit={vm.batteryEnd != null ? '%' : ''}
+                accent={COLOR}
+              />
             </TileRow>
             <Chart points={vm.series.battery} color={COLOR} formatX={fmtX} formatY={(pct) => `${Math.round(pct)}`} unitY="%" empty="No battery readings recorded for this drive." />
           </SectionCard>
@@ -244,13 +260,16 @@ function Divider() {
 /** Circular-icon stat tile: icon badge + label + value (+ optional unit). */
 function StatTile({
   icon,
+  glyph,
   label,
   value,
   unit,
   accent,
   fill = false,
 }: {
-  icon: string
+  icon?: string
+  /** Custom badge content (e.g. a fill-by-percentage BatteryGlyph); overrides `icon`. */
+  glyph?: ReactNode
   label: string
   value: string
   unit?: string
@@ -271,7 +290,7 @@ function StatTile({
           background: 'var(--track,#f0f0f3)',
         }}
       >
-        <Icon d={icon} size={20} color={accent} fill={fill ? accent : 'none'} stroke={!fill} width={1.9} />
+        {glyph ?? (icon ? <Icon d={icon} size={20} color={accent} fill={fill ? accent : 'none'} stroke={!fill} width={1.9} /> : null)}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: TD, whiteSpace: 'nowrap' }}>
@@ -326,9 +345,15 @@ function Endpoint({
         )}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, paddingBottom: connector ? 18 : 0 }}>
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: TD, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {stamp || '—'}
-          {battery != null ? ` · ${battery}%` : ''}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: TD, minWidth: 0 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stamp || '—'}</span>
+          {battery != null && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flex: 'none' }}>
+              <span>·</span>
+              <BatteryGlyph pct={battery} color={color} size={17} />
+              <span>{battery}%</span>
+            </span>
+          )}
         </span>
         <span style={{ fontSize: 15, fontWeight: 700, color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {place ?? 'Unknown location'}

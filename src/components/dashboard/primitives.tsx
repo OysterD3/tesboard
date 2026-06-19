@@ -222,6 +222,29 @@ export function BatteryRing({
   )
 }
 
+/**
+ * A horizontal battery glyph whose inner fill tracks the state-of-charge
+ * percentage (0–100). Pure SVG (SSR-safe); `color` drives both the outline and
+ * the fill so it inherits the surrounding accent.
+ */
+export function BatteryGlyph({ pct, color, size = 22 }: { pct: number; color: string; size?: number }) {
+  const p = Math.max(0, Math.min(100, pct))
+  const x = 2.5
+  const y = 7
+  const w = 16
+  const h = 10
+  const pad = 2
+  const innerW = w - pad * 2
+  const fillW = p > 0 ? Math.max(1, (innerW * p) / 100) : 0
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x={x} y={y} width={w} height={h} rx="2.4" stroke={color} strokeWidth="1.7" />
+      <rect x={x + w + 0.8} y={y + h / 2 - 2.2} width="1.8" height="4.4" rx="0.9" fill={color} />
+      {fillW > 0 && <rect x={x + pad} y={y + pad} width={fillW} height={h - pad * 2} rx="1.1" fill={color} />}
+    </svg>
+  )
+}
+
 const TOOLTIP_BOX: CSSProperties = {
   position: 'absolute',
   zIndex: 5,
