@@ -1,11 +1,11 @@
 import { createFileRoute, getRouteApi } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { Card, EmptyCard, HoverBars, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON } from '../../components/dashboard/theme'
 import { buildInsights, buildOverview } from '../../lib/dashboard-vm'
-import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
+import { distUnit, effFromWhKm, effSuffix, fmtDay, fmtDist } from '../../lib/units'
 import {
   getPhantomCauses,
   backfillStandbyFlags,
@@ -125,18 +125,26 @@ function InsightsPage() {
           </div>
           {vm.phantom.series.length >= 2 && (
             <div style={{ marginTop: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 40 }}>
-                {(() => {
-                  const series = vm.phantom.series.slice(-30)
-                  const max = Math.max(...series, 0.1)
-                  return series.map((v, i) => (
-                    <div
-                      key={i}
-                      style={{ flex: 1, height: `${Math.max(6, (v / max) * 100)}%`, background: '#f43f5e', opacity: 0.55, borderRadius: 2 }}
-                    />
-                  ))
-                })()}
-              </div>
+              {(() => {
+                const series = vm.phantom.series.slice(-30)
+                const max = Math.max(...series.map((d) => d.lostKm), 0.1)
+                return (
+                  <HoverBars
+                    height={40}
+                    color="#f43f5e"
+                    opacity={0.55}
+                    bars={series.map((d) => ({
+                      heightPct: Math.max(6, (d.lostKm / max) * 100),
+                      tip: (
+                        <>
+                          <span style={{ color: '#f43f5e' }}>{fmtDist(u, d.lostKm, 1)} {distUnit(u)}</span>
+                          <span style={{ color: TD, fontWeight: 500 }}> · {fmtDay(d.date)}</span>
+                        </>
+                      ),
+                    }))}
+                  />
+                )
+              })()}
               <span style={{ fontSize: 11, fontWeight: 500, color: TD, marginTop: 7, display: 'block' }}>Daily loss · last {Math.min(30, vm.phantom.series.length)} days with drain</span>
             </div>
           )}

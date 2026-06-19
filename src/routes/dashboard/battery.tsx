@@ -81,6 +81,7 @@ function BatteryHealthPage() {
             isDark={isDark}
             formatX={fmtOdo}
             formatY={(kwh) => `${round1(kwh)}`}
+            unitX={distUnit(u)}
           />
 
           <MetricCard
@@ -103,6 +104,7 @@ function BatteryHealthPage() {
             isDark={isDark}
             formatX={fmtOdo}
             formatY={(mi) => `${fmtDist(u, mi * MI_TO_KM)}`}
+            unitX={distUnit(u)}
           />
         </>
       )}
@@ -122,6 +124,7 @@ function MetricCard({
   isDark,
   formatX,
   formatY,
+  unitX,
 }: {
   icon: string
   title: string
@@ -134,6 +137,7 @@ function MetricCard({
   isDark: boolean
   formatX: (x: number) => string
   formatY: (y: number) => string
+  unitX: string
 }) {
   return (
     <Card radius={22} style={{ padding: 20 }}>
@@ -167,7 +171,7 @@ function MetricCard({
 
       {points.length >= 2 ? (
         <>
-          <BatteryScatter points={points} color={accent} formatX={formatX} formatY={formatY} />
+          <BatteryScatter points={points} color={accent} formatX={formatX} formatY={formatY} unitX={unitX} unitY={unit} />
           <Legend accent={accent} count={points.length} />
         </>
       ) : (

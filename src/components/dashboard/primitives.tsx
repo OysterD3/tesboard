@@ -3,7 +3,8 @@
  * handoff. Everything is themed through the CSS variables set on the dashboard
  * root (see theme.ts / DashboardProvider), so these stay theme-agnostic.
  */
-import type { CSSProperties, ReactNode } from 'react'
+import { useId, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { hexToRgba, round } from './theme'
 import { cn } from '../../lib/utils'
 
@@ -221,11 +222,109 @@ export function BatteryRing({
   )
 }
 
+const TOOLTIP_BOX: CSSProperties = {
+  position: 'absolute',
+  zIndex: 5,
+  pointerEvents: 'none',
+  padding: '5px 9px',
+  borderRadius: 9,
+  background: 'var(--card,#fff)',
+  border: '1px solid var(--border,rgba(0,0,0,0.1))',
+  boxShadow: 'var(--shadow,0 6px 18px rgba(0,0,0,0.16))',
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--tx,#1d1d1f)',
+  whiteSpace: 'nowrap',
+  lineHeight: 1.4,
+}
+
+/** A floating value label for charts. Position it via `style` (left/top/bottom). */
+export function ChartTooltip({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return <div style={{ ...TOOLTIP_BOX, ...style }}>{children}</div>
+}
+
+export interface HoverBar {
+  /** Fill height as a percentage of the track (0–100). */
+  heightPct: number
+  /** Tooltip content revealed on hover (desktop) or tap/scrub (touch). */
+  tip: ReactNode
+}
+
+/**
+ * Evenly-spaced vertical bars with a shared hover/tap tooltip. The active bar is
+ * derived from the pointer's x over the track (no per-bar listeners), so it
+ * works for mouse hover *and* touch: tap or scrub on touch pins the value until
+ * the next interaction; a mouse hides it on leave. The caller computes each
+ * bar's height + tooltip content (it owns units/dates); this owns the gesture.
+ */
+export function HoverBars({
+  bars,
+  color,
+  opacity = 0.6,
+  height = 40,
+  gap = 3,
+  radius = 2,
+}: {
+  bars: HoverBar[]
+  color: string
+  opacity?: number
+  height?: number
+  gap?: number
+  radius?: number
+}) {
+  const [active, setActive] = useState<number | null>(null)
+  const n = bars.length
+
+  function pick(e: ReactPointerEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width === 0) return
+    const frac = (e.clientX - rect.left) / rect.width
+    setActive(Math.min(n - 1, Math.max(0, Math.floor(frac * n))))
+  }
+  const clear = () => setActive(null)
+
+  const a = active != null && active < n ? active : null
+  const leftPct = a != null ? Math.min(94, Math.max(6, ((a + 0.5) / n) * 100)) : 0
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {a != null && (
+        <ChartTooltip style={{ left: `${leftPct}%`, bottom: height + 8, transform: 'translateX(-50%)', maxWidth: '72vw' }}>
+          {bars[a].tip}
+        </ChartTooltip>
+      )}
+      <div
+        onPointerDown={pick}
+        onPointerMove={pick}
+        onPointerUp={clear}
+        onPointerCancel={clear}
+        onPointerLeave={clear}
+        style={{ display: 'flex', alignItems: 'flex-end', gap, height, touchAction: 'pan-y', cursor: 'pointer' }}
+      >
+        {bars.map((b, i) => (
+          <div
+            key={i}
+            style={{
+              flex: 1,
+              height: `${Math.max(0, Math.min(100, b.heightPct))}%`,
+              background: color,
+              opacity: i === a ? Math.min(1, opacity + 0.4) : opacity,
+              borderRadius: radius,
+              transition: 'opacity .12s ease',
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** Build the line + area SVG paths for a kW-vs-time charge curve. */
 export function buildChart(curve: number[], axisMax: number) {
   const w = 280
   const h = 110
   const n = curve.length
+  if (n < 2) return { line: '', area: '' }
   const pts = curve.map((kw, i) => [
     round((i / (n - 1)) * w, 1),
     round(h - (kw / axisMax) * h, 1),
@@ -250,11 +349,29 @@ export function ChargeCurve({
   /** Fractional position (0–1) of the taper onset, or null to hide the marker (flat AC). */
   taperFrac?: number | null
 }) {
+  const gid = 'cArea-' + useId().replace(/:/g, '')
+  const [hi, setHi] = useState<number | null>(null)
   const { line, area } = buildChart(curve, axisMax)
+  const n = curve.length
   const hasTaper = taperFrac != null
   const frac = hasTaper ? taperFrac : 0
   const taperX = round(frac * 280, 1)
   const taperLeft = `calc(14px + (100% - 28px) * ${round(frac, 4)})`
+
+  function pick(e: ReactPointerEvent<SVGSVGElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width === 0 || n < 2) return
+    const f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+    setHi(Math.round(f * (n - 1)))
+  }
+  const clear = () => setHi(null)
+
+  const h = hi != null && hi < n ? hi : null
+  const hFrac = h != null && n > 1 ? h / (n - 1) : 0
+  const hX = round(hFrac * 280, 1)
+  const hY = h != null ? round(110 - (curve[h] / axisMax) * 110, 1) : 0
+  const hLeft = `calc(14px + (100% - 28px) * ${round(hFrac, 4)})`
+
   return (
     <div
       style={{
@@ -266,9 +383,20 @@ export function ChargeCurve({
         padding: '14px 14px 6px',
       }}
     >
-      <svg width="100%" height="100%" viewBox="0 0 280 110" preserveAspectRatio="none">
+      <svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 280 110"
+        preserveAspectRatio="none"
+        onPointerDown={pick}
+        onPointerMove={pick}
+        onPointerUp={clear}
+        onPointerCancel={clear}
+        onPointerLeave={clear}
+        style={{ touchAction: 'pan-y', cursor: 'crosshair' }}
+      >
         <defs>
-          <linearGradient id="cArea" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.26" />
             <stop offset="100%" stopColor={color} stopOpacity="0" />
           </linearGradient>
@@ -276,7 +404,7 @@ export function ChargeCurve({
         <line x1="0" y1="36" x2="280" y2="36" stroke="var(--td,#86868b)" strokeOpacity="0.16" strokeDasharray="2 5" />
         <line x1="0" y1="73" x2="280" y2="73" stroke="var(--td,#86868b)" strokeOpacity="0.16" strokeDasharray="2 5" />
         {hasTaper && <line x1={taperX} y1="0" x2={taperX} y2="110" stroke={color} strokeOpacity="0.45" strokeWidth="1" strokeDasharray="3 3" />}
-        <path d={area} fill="url(#cArea)" style={{ animation: 'drawArea 1s ease' }} />
+        <path d={area} fill={`url(#${gid})`} style={{ animation: 'drawArea 1s ease' }} />
         <path
           d={line}
           fill="none"
@@ -286,7 +414,18 @@ export function ChargeCurve({
           strokeLinejoin="round"
           style={{ strokeDasharray: 600, strokeDashoffset: 600, animation: 'drawRoute 1.4s .1s ease forwards' }}
         />
+        {h != null && (
+          <g pointerEvents="none">
+            <line x1={hX} y1="0" x2={hX} y2="110" stroke={color} strokeOpacity="0.5" strokeWidth="1" />
+            <circle cx={hX} cy={hY} r="3.6" fill={color} />
+          </g>
+        )}
       </svg>
+      {h != null && (
+        <ChartTooltip style={{ top: 28, left: hLeft, transform: 'translateX(-50%)' }}>
+          <span style={{ color }}>{round(curve[h], 1)} kW</span>
+        </ChartTooltip>
+      )}
       {hasTaper && (
         <span
           style={{

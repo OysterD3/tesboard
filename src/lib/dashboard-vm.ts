@@ -280,7 +280,7 @@ export interface InsightsVM {
   mostEffWhKm: number | null
   odoKm: number | null
   lifetimeDistKm: number | null
-  phantom: { lostKm: number; perDayKm: number; days: number; series: number[] } | null
+  phantom: { lostKm: number; perDayKm: number; days: number; series: { date: string; lostKm: number }[] } | null
 }
 
 export function buildInsights(
@@ -314,7 +314,7 @@ export function buildInsights(
           lostKm: round(miToKm(phantom.lostMi), 1),
           perDayKm: round(miToKm(phantom.perDayMi), 1),
           days: phantom.days,
-          series: phantom.series.map((d) => round(miToKm(d.lostMi), 1)),
+          series: phantom.series.map((d) => ({ date: d.date, lostKm: round(miToKm(d.lostMi), 1) })),
         }
       : null,
   }

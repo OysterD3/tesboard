@@ -70,3 +70,18 @@ export function effUnit(u: Units): string {
 export function effSuffix(u: Units): string {
   return u.eff === 'mi' ? 'mi/kWh' : 'Wh/km'
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * A `YYYY-MM-DD` day string → a short "Jun 18" label. The month name is read
+ * from a fixed table (not `toLocaleDateString`) so server and client always
+ * agree byte-for-byte — no timezone shift and no dependency on the runtime's
+ * locale data, both of which are sources of the React #418 hydration class.
+ * Out-of-range / unparseable input falls back to the raw string.
+ */
+export function fmtDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  if (!y || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) return ymd
+  return `${MONTHS[m - 1]} ${d}`
+}

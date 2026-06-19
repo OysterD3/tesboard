@@ -1,11 +1,13 @@
 import { Link, createFileRoute, getRouteApi } from '@tanstack/react-router'
-import { Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { useState } from 'react'
+import { Card, ChartTooltip, EmptyCard, HoverBars, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON } from '../../components/dashboard/theme'
 import {
   distUnit,
   effFromWhKm,
   effSuffix,
+  fmtDay,
   fmtDist,
   fmtSpeed,
   fmtTemp,
@@ -81,9 +83,10 @@ function AnalyticsPage() {
           </div>
           {battery.series.length >= 2 && (
             <SparkBars
-              values={battery.series.map((p) => p.capacityKwh)}
+              points={battery.series.map((p) => ({ date: p.date, value: p.capacityKwh }))}
               color={accent}
               label={`${battery.series.length} charge points`}
+              fmt={(v) => `${round1(v)} kWh`}
             />
           )}
         </Card>
@@ -267,7 +270,8 @@ function Mini({ value, label }: { value: string; label: string }) {
   )
 }
 
-/** Simple max-normalized horizontal bars (label · value). */
+/** Simple max-normalized horizontal bars (label · value); hover/tap shows the
+ *  per-bin sample count when there is one. */
 function BinBars({
   bins,
   color,
@@ -276,42 +280,69 @@ function BinBars({
   color: string
 }) {
   const max = Math.max(...bins.map((b) => b.value), 1)
+  const [active, setActive] = useState<number | null>(null)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-      {bins.map((b) => (
-        <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      {bins.map((b, i) => (
+        <div
+          key={b.label}
+          onPointerEnter={(e) => { if (e.pointerType === 'mouse' && b.count != null) setActive(i) }}
+          onPointerDown={() => { if (b.count != null) setActive(i) }}
+          onPointerUp={() => setActive(null)}
+          onPointerCancel={() => setActive(null)}
+          onPointerLeave={() => setActive(null)}
+          style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10, cursor: b.count != null ? 'pointer' : 'default' }}
+        >
           <span style={{ fontSize: 11, fontWeight: 600, color: TD, width: 64, flex: 'none', textAlign: 'right' }}>{b.label}</span>
           <div style={{ flex: 1, height: 18, borderRadius: 5, background: 'var(--track,#f0f0f3)', overflow: 'hidden' }}>
             <div style={{ width: `${Math.max(3, (b.value / max) * 100)}%`, height: '100%', background: color, opacity: 0.85 }} />
           </div>
           <span style={{ fontSize: 12, fontWeight: 700, color: TX, width: 52, flex: 'none' }}>{b.value}</span>
+          {active === i && b.count != null && (
+            <ChartTooltip style={{ left: '50%', bottom: 'calc(100% + 5px)', transform: 'translateX(-50%)', maxWidth: '72vw' }}>
+              {b.count} {b.count === 1 ? 'sample' : 'samples'}
+            </ChartTooltip>
+          )}
         </div>
       ))}
     </div>
   )
 }
 
-/** Tiny capacity-trend sparkline as normalized vertical bars. */
-function SparkBars({ values, color, label }: { values: number[]; color: string; label: string }) {
+/** Tiny capacity-trend sparkline as normalized vertical bars, hover/tap to read. */
+function SparkBars({
+  points,
+  color,
+  label,
+  fmt,
+}: {
+  points: { date: string; value: number }[]
+  color: string
+  label: string
+  fmt: (v: number) => string
+}) {
+  const shown = points.slice(-40)
+  const values = shown.map((p) => p.value)
   const min = Math.min(...values)
   const max = Math.max(...values)
   const span = max - min || 1
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 48 }}>
-        {values.slice(-40).map((v, i) => (
-          <div
-            key={i}
-            style={{
-              flex: 1,
-              height: `${20 + ((v - min) / span) * 80}%`,
-              background: color,
-              opacity: 0.7,
-              borderRadius: 2,
-            }}
-          />
-        ))}
-      </div>
+      <HoverBars
+        height={48}
+        gap={2}
+        color={color}
+        opacity={0.7}
+        bars={shown.map((p) => ({
+          heightPct: 20 + ((p.value - min) / span) * 80,
+          tip: (
+            <>
+              <span style={{ color }}>{fmt(p.value)}</span>
+              <span style={{ color: TD, fontWeight: 500 }}> · {fmtDay(p.date)}</span>
+            </>
+          ),
+        }))}
+      />
       <span style={{ fontSize: 11, fontWeight: 500, color: TD, marginTop: 6, display: 'block' }}>{label}</span>
     </div>
   )
