@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { BatteryGlyph, Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
@@ -151,64 +152,106 @@ function ChargeDetailPage() {
             )}
           </Card>
 
-          {/* Energy */}
-          <SectionCard title="Energy">
-            <TileRow>
-              <StatTile icon={ICON.plug} label="Total used" value={vm.usedKwh != null ? `${vm.usedKwh}` : DASH} unit={vm.usedKwh != null ? 'kWh' : ''} accent={COLOR} />
-              <StatTile icon={ICON.battery} fill label="Total added" value={vm.addedKwh != null ? `${vm.addedKwh}` : DASH} unit={vm.addedKwh != null ? 'kWh' : ''} accent={SECTION.insights} />
-            </TileRow>
-            <StatTile icon={ICON.leaf} label="Efficiency" value={vm.effPct != null ? `${vm.effPct}` : DASH} unit={vm.effPct != null ? '%' : ''} accent={SECTION.insights} />
-            <Chart points={vm.series.soc} color={COLOR} formatX={fmtX} formatY={(pct) => `${Math.round(pct)}`} unitY="%" empty="No battery readings recorded for this charge." />
-          </SectionCard>
+          {/* Energy — only the tiles/chart we actually have data for. */}
+          {(vm.addedKwh != null || vm.usedKwh != null || vm.effPct != null || vm.series.soc.length >= 2) && (
+            <SectionCard title="Energy">
+              <Tiles>
+                {vm.usedKwh != null && <StatTile icon={ICON.plug} label="Total used" value={`${vm.usedKwh}`} unit="kWh" accent={COLOR} />}
+                {vm.addedKwh != null && <StatTile icon={ICON.battery} fill label="Total added" value={`${vm.addedKwh}`} unit="kWh" accent={SECTION.insights} />}
+              </Tiles>
+              {vm.effPct != null && <StatTile icon={ICON.leaf} label="Efficiency" value={`${vm.effPct}`} unit="%" accent={SECTION.insights} />}
+              {vm.series.soc.length >= 2 && (
+                <Chart points={vm.series.soc} color={COLOR} formatX={fmtX} formatY={(pct) => `${Math.round(pct)}`} unitY="%" empty="" />
+              )}
+            </SectionCard>
+          )}
 
           {/* Range */}
-          <SectionCard title="Range">
-            <StatTile icon={ICON.battery} fill label="Total added" value={vm.rangeAddedKm != null ? `${fmtDist(u, vm.rangeAddedKm, 1)}` : DASH} unit={vm.rangeAddedKm != null ? distUnit(u) : ''} accent={SECTION.insights} />
-            <Chart points={vm.series.rangeKm} color={SECTION.drives} formatX={fmtX} formatY={(km) => `${fmtDist(u, km, 0)}`} unitY={distUnit(u)} empty="No range readings recorded for this charge." />
-          </SectionCard>
+          {(vm.rangeAddedKm != null || vm.series.rangeKm.length >= 2) && (
+            <SectionCard title="Range">
+              {vm.rangeAddedKm != null && (
+                <StatTile icon={ICON.battery} fill label="Total added" value={`${fmtDist(u, vm.rangeAddedKm, 1)}`} unit={distUnit(u)} accent={SECTION.insights} />
+              )}
+              {vm.series.rangeKm.length >= 2 && (
+                <Chart points={vm.series.rangeKm} color={SECTION.drives} formatX={fmtX} formatY={(km) => `${fmtDist(u, km, 0)}`} unitY={distUnit(u)} empty="" />
+              )}
+            </SectionCard>
+          )}
 
-          {/* Power */}
-          <SectionCard title="Power">
-            <TileRow>
-              <StatTile icon={ICON.trending} label="Average" value={vm.powerAvgKw != null ? `${vm.powerAvgKw}` : DASH} unit={vm.powerAvgKw != null ? 'kW' : ''} accent={COLOR} />
-              <StatTile icon={ICON.charging} fill label="Peak" value={vm.powerPeakKw != null ? `${vm.powerPeakKw}` : DASH} unit={vm.powerPeakKw != null ? 'kW' : ''} accent={COLOR} />
-            </TileRow>
-            <Chart points={vm.series.powerKw} color={COLOR} formatX={fmtX} formatY={(kw) => `${Math.round(kw)}`} unitY="kW" empty="No power samples recorded for this charge (live AC sessions only catch power at the poll instants)." />
-          </SectionCard>
+          {/* Power (shown as a positive charging magnitude) */}
+          {vm.powerPeakKw != null && (
+            <SectionCard title="Power">
+              <TileRow>
+                <StatTile icon={ICON.trending} label="Average" value={`${vm.powerAvgKw}`} unit="kW" accent={COLOR} />
+                <StatTile icon={ICON.charging} fill label="Peak" value={`${vm.powerPeakKw}`} unit="kW" accent={COLOR} />
+              </TileRow>
+              {vm.series.powerKw.length >= 2 && (
+                <Chart points={vm.series.powerKw} color={COLOR} formatX={fmtX} formatY={(kw) => `${Math.round(kw)}`} unitY="kW" empty="" />
+              )}
+            </SectionCard>
+          )}
 
           {/* Amperage */}
-          <SectionCard title="Amperage">
-            <TileRow>
-              <StatTile icon={ICON.trending} label="Average" value={vm.currentAvgA != null ? `${vm.currentAvgA}` : DASH} unit={vm.currentAvgA != null ? 'A' : ''} accent={COLOR} />
-              <StatTile icon={ICON.charging} fill label="Peak" value={vm.currentPeakA != null ? `${vm.currentPeakA}` : DASH} unit={vm.currentPeakA != null ? 'A' : ''} accent={COLOR} />
-            </TileRow>
-            <Chart points={vm.series.currentA} color={SECTION.drives} formatX={fmtX} formatY={(a) => `${Math.round(a)}`} unitY="A" empty="No amperage samples recorded for this charge." />
-          </SectionCard>
+          {vm.currentPeakA != null && (
+            <SectionCard title="Amperage">
+              <TileRow>
+                <StatTile icon={ICON.trending} label="Average" value={`${vm.currentAvgA}`} unit="A" accent={COLOR} />
+                <StatTile icon={ICON.charging} fill label="Peak" value={`${vm.currentPeakA}`} unit="A" accent={COLOR} />
+              </TileRow>
+              {vm.series.currentA.length >= 2 && (
+                <Chart points={vm.series.currentA} color={SECTION.drives} formatX={fmtX} formatY={(a) => `${Math.round(a)}`} unitY="A" empty="" />
+              )}
+            </SectionCard>
+          )}
 
           {/* Voltage */}
-          <SectionCard title="Voltage">
-            <TileRow>
-              <StatTile icon={ICON.trending} label="Average" value={vm.voltageAvgV != null ? `${vm.voltageAvgV}` : DASH} unit={vm.voltageAvgV != null ? 'V' : ''} accent={COLOR} />
-              <StatTile icon={ICON.charging} fill label="Peak" value={vm.voltagePeakV != null ? `${vm.voltagePeakV}` : DASH} unit={vm.voltagePeakV != null ? 'V' : ''} accent={COLOR} />
-            </TileRow>
-            <Chart points={vm.series.voltageV} color={SECTION.drives} formatX={fmtX} formatY={(v) => `${Math.round(v)}`} unitY="V" empty="No voltage samples recorded for this charge." />
-          </SectionCard>
+          {vm.voltagePeakV != null && (
+            <SectionCard title="Voltage">
+              <TileRow>
+                <StatTile icon={ICON.trending} label="Average" value={`${vm.voltageAvgV}`} unit="V" accent={COLOR} />
+                <StatTile icon={ICON.charging} fill label="Peak" value={`${vm.voltagePeakV}`} unit="V" accent={COLOR} />
+              </TileRow>
+              {vm.series.voltageV.length >= 2 && (
+                <Chart points={vm.series.voltageV} color={SECTION.drives} formatX={fmtX} formatY={(v) => `${Math.round(v)}`} unitY="V" empty="" />
+              )}
+            </SectionCard>
+          )}
 
           {/* Interior temperature */}
-          <SectionCard title="Interior temperature">
-            <StatTile icon={ICON.thermometer} label="Average" value={vm.insideAvgC != null ? `${fmtTemp(u, vm.insideAvgC)}` : DASH} unit={vm.insideAvgC != null ? tempUnit(u) : ''} accent={SECTION.charging} />
-            <Chart points={vm.series.insideC} color={SECTION.charging} formatX={fmtX} formatY={(c) => `${fmtTemp(u, c)}`} unitY={tempUnit(u)} empty="No interior-temperature samples for this charge." />
-          </SectionCard>
+          {(vm.insideAvgC != null || vm.series.insideC.length >= 2) && (
+            <SectionCard title="Interior temperature">
+              {vm.insideAvgC != null && (
+                <StatTile icon={ICON.thermometer} label="Average" value={`${fmtTemp(u, vm.insideAvgC)}`} unit={tempUnit(u)} accent={SECTION.charging} />
+              )}
+              {vm.series.insideC.length >= 2 && (
+                <Chart points={vm.series.insideC} color={SECTION.charging} formatX={fmtX} formatY={(c) => `${fmtTemp(u, c)}`} unitY={tempUnit(u)} empty="" />
+              )}
+            </SectionCard>
+          )}
 
           {/* Exterior temperature */}
-          <SectionCard title="Exterior temperature">
-            <StatTile icon={ICON.thermometer} label="Average" value={vm.outsideAvgC != null ? `${fmtTemp(u, vm.outsideAvgC)}` : DASH} unit={vm.outsideAvgC != null ? tempUnit(u) : ''} accent={SECTION.analytics} />
-            <Chart points={vm.series.outsideC} color={SECTION.analytics} formatX={fmtX} formatY={(c) => `${fmtTemp(u, c)}`} unitY={tempUnit(u)} empty="No exterior-temperature samples for this charge." />
-          </SectionCard>
+          {(vm.outsideAvgC != null || vm.series.outsideC.length >= 2) && (
+            <SectionCard title="Exterior temperature">
+              {vm.outsideAvgC != null && (
+                <StatTile icon={ICON.thermometer} label="Average" value={`${fmtTemp(u, vm.outsideAvgC)}`} unit={tempUnit(u)} accent={SECTION.analytics} />
+              )}
+              {vm.series.outsideC.length >= 2 && (
+                <Chart points={vm.series.outsideC} color={SECTION.analytics} formatX={fmtX} formatY={(c) => `${fmtTemp(u, c)}`} unitY={tempUnit(u)} empty="" />
+              )}
+            </SectionCard>
+          )}
         </>
       )}
     </div>
   )
+}
+
+/** Render only the present stat tiles: one tile full-width, or two-up in a grid. */
+function Tiles({ children }: { children: ReactNode }) {
+  const items = (Array.isArray(children) ? children : [children]).filter(Boolean) as ReactNode[]
+  if (items.length === 0) return null
+  const keyed = items.map((it, i) => <Fragment key={i}>{it}</Fragment>)
+  return items.length === 1 ? <>{keyed}</> : <TileRow>{keyed}</TileRow>
 }
 
 /** "11m" / "1h 4m" — charge duration label. */

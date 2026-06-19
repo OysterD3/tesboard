@@ -159,7 +159,10 @@ export function buildChargeDetail(p: ChargeDetailPayload, tz?: string): ChargeDe
     rangeKm: p.samples
       .filter((s) => s.rangeMi != null)
       .map((s) => ({ x: s.tMin, y: round(miToKm(s.rangeMi as number), 1) })),
-    powerKw: p.samples.filter((s) => s.powerKw != null).map((s) => ({ x: s.tMin, y: s.powerKw as number })),
+    // Tesla's power follows the drive convention (negative = energy flowing INTO
+    // the battery), so during a charge it's negative — show the positive charging
+    // magnitude instead.
+    powerKw: p.samples.filter((s) => s.powerKw != null).map((s) => ({ x: s.tMin, y: Math.abs(s.powerKw as number) })),
     currentA: p.samples.filter((s) => s.currentA != null).map((s) => ({ x: s.tMin, y: s.currentA as number })),
     voltageV: p.samples.filter((s) => s.voltageV != null).map((s) => ({ x: s.tMin, y: s.voltageV as number })),
     insideC: p.samples.filter((s) => s.insideC != null).map((s) => ({ x: s.tMin, y: s.insideC as number })),

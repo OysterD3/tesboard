@@ -134,15 +134,20 @@ describe('buildChargeDetail', () => {
     ])
   })
 
-  it('derives power/current/voltage averages and peaks from samples', () => {
+  it('derives power/current/voltage averages and peaks, showing charge power as a positive magnitude', () => {
     const vm = buildChargeDetail(
       payload({
         samples: [
-          sample({ tMin: 0, powerKw: 4, currentA: 6, voltageV: 230 }),
-          sample({ tMin: 5, powerKw: 8, currentA: 10, voltageV: 240 }),
+          // Tesla reports charge power as negative (energy into the battery).
+          sample({ tMin: 0, powerKw: -4, currentA: 6, voltageV: 230 }),
+          sample({ tMin: 5, powerKw: -8, currentA: 10, voltageV: 240 }),
         ],
       }),
     )
+    expect(vm.series.powerKw).toEqual([
+      { x: 0, y: 4 },
+      { x: 5, y: 8 },
+    ])
     expect(vm.powerAvgKw).toBe(6)
     expect(vm.powerPeakKw).toBe(8)
     expect(vm.currentAvgA).toBe(8)
