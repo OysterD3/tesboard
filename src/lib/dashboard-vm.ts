@@ -269,6 +269,12 @@ export interface SessionVM {
   currency: string
   /** Provenance of `cost`: computed | tesla_billed | tesla_billed_free | geofence | imported_teslamate | manual. */
   costSource: string
+  /** State of charge (%) at each end of the session. */
+  startBattery: number | null
+  endBattery: number | null
+  /** "Mon, Apr 20 · 7:14 PM" for each end; endStamp null while still charging. */
+  startStamp: string | null
+  endStamp: string | null
 }
 
 export function buildSessions(payload: ChargingPayload, tz?: string): SessionVM[] {
@@ -291,6 +297,10 @@ export function buildSessions(payload: ChargingPayload, tz?: string): SessionVM[
       cost: s.cost_amount ?? null,
       currency: s.cost_currency ?? 'USD',
       costSource: s.cost_source ?? 'computed',
+      startBattery: s.start_battery_level,
+      endBattery: s.end_battery_level,
+      startStamp: stampShort(s.started_at, tz),
+      endStamp: stampShort(s.ended_at, tz),
     }
   })
 }

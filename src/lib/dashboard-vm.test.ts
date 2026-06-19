@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChargingReview, buildDrives } from './dashboard-vm'
+import { buildChargingReview, buildDrives, buildSessions } from './dashboard-vm'
 import type { ChargingPayload } from '../functions/charging.functions'
 import type { ChargeWithLocation } from '../functions/charging.functions'
 import type { DrivesPayload, DriveWithLocation } from '../functions/drives.functions'
@@ -136,5 +136,32 @@ describe('buildDrives', () => {
     const [d] = buildDrives(drivesPayload([drive({ startLocation: null, endLocation: null })]), 'UTC')
     expect(d.startPlace).toBeNull()
     expect(d.endPlace).toBeNull()
+  })
+})
+
+describe('buildSessions', () => {
+  it('exposes per-end battery + tz-safe stamps for the From→To charge card', () => {
+    const [s] = buildSessions(
+      payload([
+        session({
+          started_at: '2026-04-18T17:20:00Z',
+          ended_at: '2026-04-18T17:32:00Z',
+          start_battery_level: 98,
+          end_battery_level: 100,
+        }),
+      ]),
+      'UTC',
+    )
+    expect(s.startBattery).toBe(98)
+    expect(s.endBattery).toBe(100)
+    expect(s.startStamp).toBe('Sat, Apr 18 · 5:20 PM')
+    expect(s.endStamp).toBe('Sat, Apr 18 · 5:32 PM')
+    expect(s.type).toBe('AC')
+  })
+
+  it('leaves endStamp null for an in-progress charge', () => {
+    const [s] = buildSessions(payload([session({ ended_at: null, end_battery_level: null })]), 'UTC')
+    expect(s.endStamp).toBeNull()
+    expect(s.endBattery).toBeNull()
   })
 })

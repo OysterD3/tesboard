@@ -23,6 +23,7 @@ import { Route as DashboardChargingRouteImport } from './routes/dashboard/chargi
 import { Route as DashboardBatteryRouteImport } from './routes/dashboard/battery'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard/analytics'
 import { Route as DashboardDrivesDriveIdRouteImport } from './routes/dashboard/drives_.$driveId'
+import { Route as DashboardChargingChargeIdRouteImport } from './routes/dashboard/charging_.$chargeId'
 import { Route as ApiCronPollRouteImport } from './routes/api/cron/poll'
 import { Route as ApiAuthTeslaLoginRouteImport } from './routes/api/auth/tesla/login'
 import { Route as ApiAuthTeslaCallbackRouteImport } from './routes/api/auth/tesla/callback'
@@ -97,6 +98,12 @@ const DashboardDrivesDriveIdRoute = DashboardDrivesDriveIdRouteImport.update({
   path: '/drives/$driveId',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardChargingChargeIdRoute =
+  DashboardChargingChargeIdRouteImport.update({
+    id: '/charging_/$chargeId',
+    path: '/charging/$chargeId',
+    getParentRoute: () => DashboardRoute,
+  } as any)
 const ApiCronPollRoute = ApiCronPollRouteImport.update({
   id: '/api/cron/poll',
   path: '/api/cron/poll',
@@ -128,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/api/cron/poll': typeof ApiCronPollRoute
+  '/dashboard/charging/$chargeId': typeof DashboardChargingChargeIdRoute
   '/dashboard/drives/$driveId': typeof DashboardDrivesDriveIdRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
@@ -146,6 +154,7 @@ export interface FileRoutesByTo {
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard': typeof DashboardIndexRoute
   '/api/cron/poll': typeof ApiCronPollRoute
+  '/dashboard/charging/$chargeId': typeof DashboardChargingChargeIdRoute
   '/dashboard/drives/$driveId': typeof DashboardDrivesDriveIdRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
@@ -166,6 +175,7 @@ export interface FileRoutesById {
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/api/cron/poll': typeof ApiCronPollRoute
+  '/dashboard/charging_/$chargeId': typeof DashboardChargingChargeIdRoute
   '/dashboard/drives_/$driveId': typeof DashboardDrivesDriveIdRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/dashboard/settings'
     | '/dashboard/'
     | '/api/cron/poll'
+    | '/dashboard/charging/$chargeId'
     | '/dashboard/drives/$driveId'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
@@ -205,6 +216,7 @@ export interface FileRouteTypes {
     | '/dashboard/settings'
     | '/dashboard'
     | '/api/cron/poll'
+    | '/dashboard/charging/$chargeId'
     | '/dashboard/drives/$driveId'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
@@ -224,6 +236,7 @@ export interface FileRouteTypes {
     | '/dashboard/settings'
     | '/dashboard/'
     | '/api/cron/poll'
+    | '/dashboard/charging_/$chargeId'
     | '/dashboard/drives_/$driveId'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
@@ -338,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardDrivesDriveIdRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/charging_/$chargeId': {
+      id: '/dashboard/charging_/$chargeId'
+      path: '/charging/$chargeId'
+      fullPath: '/dashboard/charging/$chargeId'
+      preLoaderRoute: typeof DashboardChargingChargeIdRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/api/cron/poll': {
       id: '/api/cron/poll'
       path: '/api/cron/poll'
@@ -373,6 +393,7 @@ interface DashboardRouteChildren {
   DashboardLocationsRoute: typeof DashboardLocationsRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  DashboardChargingChargeIdRoute: typeof DashboardChargingChargeIdRoute
   DashboardDrivesDriveIdRoute: typeof DashboardDrivesDriveIdRoute
 }
 
@@ -387,6 +408,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardLocationsRoute: DashboardLocationsRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  DashboardChargingChargeIdRoute: DashboardChargingChargeIdRoute,
   DashboardDrivesDriveIdRoute: DashboardDrivesDriveIdRoute,
 }
 

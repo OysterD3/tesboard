@@ -115,4 +115,6 @@ export const ICON = {
   clock: 'M12 7v5l3 2 M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   mountain: 'M8 3l4 8 5-5 5 15H2L8 3z',
   dollar: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6',
+  plug: 'M9 3v5 M15 3v5 M7 8h10v3a5 5 0 0 1-10 0V8z M12 16v5',
+  trending: 'M3 17l6-6 4 4 8-8 M17 7h4 M21 7v4',
 } as const
