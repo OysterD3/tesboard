@@ -1,11 +1,11 @@
 import { createFileRoute, getRouteApi, useNavigate, useRouter } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
+import { BatteryGlyph, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
 import { VirtualList } from '../../components/dashboard/VirtualList'
-import { LifetimeMap, type MapPoint } from '../../components/dashboard/LifetimeMap'
+import { LifetimeMap, MapMessage, MapOverlay, type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
@@ -105,6 +105,30 @@ function DrivesPage() {
     )
   }
 
+  // Map view = a full-screen immersive map: the route map fills the whole
+  // viewport, with the History/Map toggle, Snap-to-roads action, and the caption
+  // floated over it.
+  if (view === 'map') {
+    const hasRoutes = !!routesMap && routesMap.routes.length > 0
+    return (
+      <MapOverlay
+        topLeft={<Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />}
+        topRight={hasRoutes ? <SnapToRoadsButton isDark={isDark} onDone={() => setRoutesMap(null)} /> : null}
+        caption={
+          hasRoutes
+            ? `${routesMap!.driveCount} route${routesMap!.driveCount === 1 ? '' : 's'} · ${drivePins.length} start/end place${drivePins.length === 1 ? '' : 's'} · road-matched (drives too GPS-sparse to snap are hidden)`
+            : null
+        }
+      >
+        {hasRoutes ? (
+          <LifetimeMap fill routes={routesMap!.routes} points={drivePins} routeColor={COLOR} markerColor={COLOR} isDark={isDark} />
+        ) : (
+          <MapMessage>{routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}</MapMessage>
+        )}
+      </MapOverlay>
+    )
+  }
+
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
@@ -112,39 +136,6 @@ function DrivesPage() {
         <Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />
       </div>
 
-      {view === 'map' ? (
-        <>
-          {routesMap && routesMap.routes.length > 0 && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <SnapToRoadsButton isDark={isDark} onDone={() => setRoutesMap(null)} />
-            </div>
-          )}
-          <Card radius={22} style={{ padding: 14 }}>
-            {routesMap && routesMap.routes.length > 0 ? (
-              <>
-                <LifetimeMap
-                  routes={routesMap.routes}
-                  points={drivePins}
-                  routeColor={COLOR}
-                  markerColor={COLOR}
-                  isDark={isDark}
-                  height={540}
-                />
-                <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-                  {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · {drivePins.length} start/end place{drivePins.length === 1 ? '' : 's'} · road-matched (drives too GPS-sparse to snap are hidden)
-                </div>
-              </>
-            ) : (
-              <div style={{ height: 540, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
-                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
-                  {routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}
-                </span>
-              </div>
-            )}
-          </Card>
-        </>
-      ) : (
-        <>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <FillElevationButton isDark={isDark} />
         <ResolveLocationsButton isDark={isDark} />
@@ -161,8 +152,6 @@ function DrivesPage() {
           return <DriveCard d={r.item} u={u} onClick={() => open(r.item.id)} />
         }}
       />
-        </>
-      )}
     </div>
   )
 }

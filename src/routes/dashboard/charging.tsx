@@ -2,7 +2,7 @@ import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-route
 import { useMemo, useState } from 'react'
 import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import { VirtualList } from '../../components/dashboard/VirtualList'
-import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
+import { LifetimeMap, MapMessage, MapOverlay } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildChargingReview, buildSessions, type SessionVM } from '../../lib/dashboard-vm'
@@ -70,6 +70,28 @@ function ChargingPage() {
     )
   }
 
+  // Map view = a full-screen immersive map: charge places fill the whole viewport,
+  // with the History/Map toggle and the caption floated over it.
+  if (view === 'map') {
+    const hasPoints = points.length > 0
+    return (
+      <MapOverlay
+        topLeft={<Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />}
+        caption={
+          hasPoints
+            ? `${points.length} location${points.length === 1 ? '' : 's'} · ${totalCharges} charge${totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to zoom in`
+            : null
+        }
+      >
+        {hasPoints ? (
+          <LifetimeMap fill points={points} routeColor={COLOR} markerColor={COLOR} isDark={isDark} />
+        ) : (
+          <MapMessage>No charge locations yet — sessions need a recorded location to map.</MapMessage>
+        )}
+      </MapOverlay>
+    )
+  }
+
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -77,19 +99,6 @@ function ChargingPage() {
         <Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />
       </div>
 
-      {view === 'map' ? (
-        points.length > 0 ? (
-          <Card radius={22} style={{ padding: 14 }}>
-            <LifetimeMap points={points} routeColor={COLOR} markerColor={COLOR} isDark={isDark} height={540} />
-            <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-              {points.length} location{points.length === 1 ? '' : 's'} · {totalCharges} charge{totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to zoom in
-            </div>
-          </Card>
-        ) : (
-          <EmptyCard title="No charge locations yet" body="Charge sessions need a recorded location to map. They’ll appear here once the poller (or an import) captures where you charged." />
-        )
-      ) : (
-        <>
       {review.hasData && (
         <Card radius={22} style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -149,8 +158,6 @@ function ChargingPage() {
           return <ChargeCard c={r.item} isDark={isDark} onClick={() => open(r.item.id)} />
         }}
       />
-        </>
-      )}
     </div>
   )
 }
