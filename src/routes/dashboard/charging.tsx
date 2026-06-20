@@ -76,6 +76,7 @@ function ChargingPage() {
     const hasPoints = points.length > 0
     return (
       <MapOverlay
+        onBack={() => setView('history')}
         topLeft={<Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />}
         caption={
           hasPoints

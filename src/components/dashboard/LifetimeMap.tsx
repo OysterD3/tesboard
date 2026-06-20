@@ -157,7 +157,9 @@ export function LifetimeMap({
       className={isDark ? 'evd-map evd-map-dark' : 'evd-map'}
       style={
         fill
-          ? { position: 'absolute', inset: 0 }
+          ? // zIndex:0 makes the map its own stacking context so Leaflet's internal
+            // panes (z-index 200–700) can't paint over the floating MapOverlay controls.
+            { position: 'absolute', inset: 0, zIndex: 0 }
           : { height, width: '100%', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border,rgba(0,0,0,0.07))' }
       }
     />
@@ -174,11 +176,15 @@ export function LifetimeMap({
  * Inherits the dashboard theme CSS vars since it renders inside the themed shell.
  */
 export function MapOverlay({
+  onBack,
   topLeft,
   topRight,
   caption,
   children,
 }: {
+  /** When set, a circular back button is floated at the very top-left that exits
+   *  the full-screen map (e.g. back to the History list). */
+  onBack?: () => void
   topLeft?: ReactNode
   topRight?: ReactNode
   caption?: ReactNode
@@ -202,9 +208,36 @@ export function MapOverlay({
           zIndex: 2,
         }}
       >
-        {topLeft != null && (
-          <div style={{ pointerEvents: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', filter: floatShadow }}>{topLeft}</div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back"
+              style={{
+                pointerEvents: 'auto',
+                flex: 'none',
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                border: '1px solid var(--border,rgba(0,0,0,0.08))',
+                background: 'var(--card,#fff)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                filter: floatShadow,
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tx,#1d1d1f)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+          )}
+          {topLeft != null && (
+            <div style={{ pointerEvents: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', filter: floatShadow }}>{topLeft}</div>
+          )}
+        </div>
         {topRight != null && (
           <div style={{ pointerEvents: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', filter: floatShadow }}>
             {topRight}

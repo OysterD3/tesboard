@@ -112,6 +112,7 @@ function DrivesPage() {
     const hasRoutes = !!routesMap && routesMap.routes.length > 0
     return (
       <MapOverlay
+        onBack={() => setView('history')}
         topLeft={<Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />}
         topRight={hasRoutes ? <SnapToRoadsButton isDark={isDark} onDone={() => setRoutesMap(null)} /> : null}
         caption={
