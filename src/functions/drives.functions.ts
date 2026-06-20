@@ -265,6 +265,7 @@ export const getDriveRoutes = createServerFn({ method: 'GET' })
           started_at: driveSession.started_at,
           ended_at: driveSession.ended_at,
           route_geometry: driveSession.route_geometry,
+          route_match_status: driveSession.route_match_status,
         })
         .from(driveSession)
         .where(
@@ -283,7 +284,12 @@ export const getDriveRoutes = createServerFn({ method: 'GET' })
         const geom = d.route_geometry
         if (geom && geom.length >= 2) {
           matchedRoutes.push(downsampleSeries(geom, 100))
-        } else {
+        } else if (d.route_match_status == null) {
+          // Un-attempted (e.g. a new drive not yet snapped) → straight-line breadcrumb
+          // until "Snap to roads" runs. Drives that WERE attempted but couldn't match
+          // ('failed' / 'insufficient' — too GPS-sparse) are intentionally NOT drawn, so
+          // the lifetime map shows road-shaped routes instead of straight lines that cut
+          // across blocks.
           windows.push({ startMs: new Date(d.started_at).getTime(), endMs: new Date(d.ended_at).getTime() })
         }
       }

@@ -131,7 +131,7 @@ function DrivesPage() {
                   height={540}
                 />
                 <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-                  {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · {drivePins.length} start/end place{drivePins.length === 1 ? '' : 's'} · road-matched where snapped, else sampled at the poll cadence
+                  {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · {drivePins.length} start/end place{drivePins.length === 1 ? '' : 's'} · road-matched (drives too GPS-sparse to snap are hidden)
                 </div>
               </>
             ) : (
