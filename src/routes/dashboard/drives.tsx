@@ -1,5 +1,5 @@
 import { createFileRoute, getRouteApi, useNavigate, useRouter } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import type { DriveVM } from '../../lib/dashboard-vm'
@@ -9,7 +9,6 @@ import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
-import { chargePoints } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
@@ -33,7 +32,7 @@ const VIEW_OPTIONS = [
 ]
 
 function DrivesPage() {
-  const { drives, charging, activeVin } = dashApi.useLoaderData()
+  const { drives, activeVin } = dashApi.useLoaderData()
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
@@ -49,7 +48,6 @@ function DrivesPage() {
   const fetchRoutes = useServerFn(getDriveRoutes)
   const [routesMap, setRoutesMap] = useState<DriveRoutesMap | null>(null)
   const [routesLoading, setRoutesLoading] = useState(false)
-  const chargePts = useMemo(() => chargePoints(charging.sessions), [charging.sessions])
 
   useEffect(() => {
     if (view !== 'map' || routesMap) return
@@ -100,20 +98,17 @@ function DrivesPage() {
 
       {view === 'map' ? (
         <Card radius={22} style={{ padding: 14 }}>
-          {routesMap && (routesMap.routes.length > 0 || chargePts.length > 0) ? (
+          {routesMap && routesMap.routes.length > 0 ? (
             <>
               <LifetimeMap
                 routes={routesMap.routes}
-                points={chargePts}
                 routeColor={COLOR}
-                markerColor={SECTION.charging}
+                markerColor={COLOR}
                 isDark={isDark}
                 height={540}
-                onPointClick={(id) => navigate({ to: '/dashboard/charging/$chargeId', params: { chargeId: id }, search: (prev) => prev })}
               />
               <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-                {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'}
-                {chargePts.length > 0 ? ` · ${chargePts.length} charge${chargePts.length === 1 ? '' : 's'}` : ''} · sampled at the poll cadence (not road-matched)
+                {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · sampled at the poll cadence (not road-matched)
               </div>
             </>
           ) : (

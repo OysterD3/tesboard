@@ -23,12 +23,23 @@ export interface RouteWindow {
   endMs: number
 }
 
-/** A single charge session as a map point (clustered dynamically by the map). */
-export interface ChargePoint {
+/**
+ * A merged charging-location marker: every charge session within the cluster
+ * radius of each other, collapsed to one point (one place). The map renders each
+ * place as a plain pin — the leaflet cluster badge counts how many *places*
+ * overlap at the current zoom, not sessions; `count` here only feeds the "N
+ * charges" summary text, and tapping a pin opens the most-recent session (`id`).
+ */
+export interface ChargeCluster {
+  /** Centroid (running mean) of the merged sessions. */
   lat: number
   lng: number
-  /** Session id, so tapping the marker can open the charge detail page. */
+  /** How many charge sessions this marker merges (drives summary text, not the marker badge). */
+  count: number
+  /** Representative session id (the most-recent charge here) — opened when the place's pin is tapped. */
   id: string
+  /** Every merged session, most-recent first (the newest is the representative `id`). */
+  members: { id: string; atMs: number }[]
 }
 
 /**
@@ -65,17 +76,80 @@ export function groupRoutes(
   return routes.slice(0, maxPaths).map((r) => downsampleSeries(r, maxPerPath))
 }
 
+/** Great-circle metres between two points — a mirror of server/geo.haversineMeters,
+ *  inlined to keep this client-side lib free of any server import. */
+function metersBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6_371_000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(bLat - aLat)
+  const dLng = toRad(bLng - aLng)
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
+interface ClusterAcc {
+  sumLat: number
+  sumLng: number
+  lat: number
+  lng: number
+  ids: { id: string; at: number }[]
+}
+
 /**
- * One map point per charge session that has coordinates (sessions without are
- * skipped). These are fed individually to the map's marker-cluster layer, which
- * merges them into numbered clusters per zoom and splits them on tap — so the
- * grouping is dynamic, not baked in here.
+ * Merge located charge sessions within `radiusMeters` of each other into one map
+ * marker, so repeated charges at the same physical spot (the same Supercharger,
+ * your driveway) collapse to a SINGLE pin instead of a scatter of GPS-jittered
+ * dots that the zoom-based cluster layer pulls apart once you zoom in. Greedy
+ * single pass: each session joins the nearest existing cluster whose centroid is
+ * within the radius (centroid kept as a running mean), else it opens a new
+ * cluster. Sessions without coordinates are skipped. Within a cluster the
+ * representative `id` is the most-recent charge, so tapping the marker opens the
+ * latest visit. Output is sorted by `count` descending (deterministic, render-friendly).
+ *
+ * Default radius is 150m: charges at one spot (a Supercharger, your driveway) drift
+ * by GPS jitter — this user's home readings span ~128m across months — so a tighter
+ * 100m would split one place into two pins, while distinct places sit ≥500m apart.
  */
-export function chargePoints(sessions: ChargeWithLocation[]): ChargePoint[] {
-  const out: ChargePoint[] = []
+export function clusterChargePoints(
+  sessions: ChargeWithLocation[],
+  radiusMeters = 150,
+): ChargeCluster[] {
+  const clusters: ClusterAcc[] = []
   for (const s of sessions) {
     if (s.lat == null || s.lng == null) continue
-    out.push({ lat: s.lat, lng: s.lng, id: String(s.id) })
+    let best: ClusterAcc | null = null
+    let bestD = Infinity
+    for (const c of clusters) {
+      const d = metersBetween(s.lat, s.lng, c.lat, c.lng)
+      if (d <= radiusMeters && d < bestD) {
+        best = c
+        bestD = d
+      }
+    }
+    const parsed = s.started_at ? Date.parse(s.started_at) : 0
+    const entry = { id: String(s.id), at: Number.isNaN(parsed) ? 0 : parsed }
+    if (best) {
+      best.ids.push(entry)
+      best.sumLat += s.lat
+      best.sumLng += s.lng
+      best.lat = best.sumLat / best.ids.length
+      best.lng = best.sumLng / best.ids.length
+    } else {
+      clusters.push({ sumLat: s.lat, sumLng: s.lng, lat: s.lat, lng: s.lng, ids: [entry] })
+    }
   }
-  return out
+  return clusters
+    .map((c) => {
+      const ordered = c.ids.slice().sort((a, b) => b.at - a.at)
+      return {
+        lat: c.lat,
+        lng: c.lng,
+        count: ordered.length,
+        id: ordered[0].id,
+        members: ordered.map((e) => ({ id: e.id, atMs: e.at })),
+      }
+    })
+    .sort((a, b) => b.count - a.count)
 }

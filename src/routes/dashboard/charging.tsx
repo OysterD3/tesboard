@@ -6,7 +6,7 @@ import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildChargingReview, buildSessions, type SessionVM } from '../../lib/dashboard-vm'
-import { chargePoints } from '../../lib/map-vm'
+import { clusterChargePoints } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
@@ -51,7 +51,8 @@ function ChargingPage() {
   const visible = month === 'all' ? all : all.filter((s) => s.monthKey === month)
   const rows = groupByMonth(visible, (s) => s.id)
   const [view, setView] = useState<'history' | 'map'>('history')
-  const points = useMemo(() => chargePoints(charging.sessions), [charging.sessions])
+  const points = useMemo(() => clusterChargePoints(charging.sessions), [charging.sessions])
+  const totalCharges = useMemo(() => points.reduce((s, p) => s + p.count, 0), [points])
 
   function open(id: string) {
     navigate({ to: '/dashboard/charging/$chargeId', params: { chargeId: id }, search: (prev) => prev })
@@ -81,7 +82,7 @@ function ChargingPage() {
           <Card radius={22} style={{ padding: 14 }}>
             <LifetimeMap points={points} routeColor={COLOR} markerColor={COLOR} isDark={isDark} height={540} onPointClick={open} />
             <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-              {points.length} charge{points.length === 1 ? '' : 's'} · tap a cluster to zoom in, a marker to open it
+              {points.length} location{points.length === 1 ? '' : 's'} · {totalCharges} charge{totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to open its latest
             </div>
           </Card>
         ) : (

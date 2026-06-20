@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chargePoints, groupRoutes, type RouteSnap, type RouteWindow } from './map-vm'
+import { clusterChargePoints, groupRoutes, type RouteSnap, type RouteWindow } from './map-vm'
 import type { ChargeWithLocation } from '../functions/charging.functions'
 
 const snap = (atMs: number, lat: number, lng: number): RouteSnap => ({ lat, lng, atMs })
@@ -53,19 +53,67 @@ describe('groupRoutes', () => {
   })
 })
 
-const charge = (id: number, lat: number | null, lng: number | null): ChargeWithLocation =>
-  ({ id, lat, lng } as ChargeWithLocation)
+const charge = (
+  id: number,
+  lat: number | null,
+  lng: number | null,
+  startedAt = '2026-01-01T00:00:00Z',
+): ChargeWithLocation => ({ id, lat, lng, started_at: startedAt } as ChargeWithLocation)
 
-describe('chargePoints', () => {
-  it('emits one point per located session (the map clusters them dynamically)', () => {
-    const pts = chargePoints([charge(1, 3.1, 101.7), charge(2, 3.1, 101.7), charge(3, 3.2, 101.65)])
-    expect(pts).toHaveLength(3)
-    expect(pts[0]).toEqual({ lat: 3.1, lng: 101.7, id: '1' })
+describe('clusterChargePoints', () => {
+  it('merges charges within the radius into one marker carrying the visit count', () => {
+    // base, ~55m NE, ~31m SW — all well inside the 150m default of each other.
+    const out = clusterChargePoints([
+      charge(1, 3.1, 101.7, '2026-01-01T00:00:00Z'),
+      charge(2, 3.1004, 101.7003, '2026-02-01T00:00:00Z'),
+      charge(3, 3.0998, 101.6998, '2026-03-01T00:00:00Z'),
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].count).toBe(3)
+    expect(out[0].lat).toBeCloseTo(3.1, 3)
+    expect(out[0].lng).toBeCloseTo(101.7, 3)
+  })
+
+  it('uses the most-recent session as the marker id and orders members newest-first', () => {
+    const out = clusterChargePoints([
+      charge(1, 3.1, 101.7, '2026-01-01T00:00:00Z'),
+      charge(2, 3.1003, 101.7002, '2026-03-15T00:00:00Z'),
+      charge(3, 3.0999, 101.6999, '2026-02-10T00:00:00Z'),
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].id).toBe('2')
+    expect(out[0].members.map((m) => m.id)).toEqual(['2', '3', '1'])
+    // members carry epoch ms, descending (newest first); the newest is the representative id opened on tap.
+    expect(out[0].members[0].atMs).toBe(Date.parse('2026-03-15T00:00:00Z'))
+    expect(out[0].members.map((m) => m.atMs)).toEqual([...out[0].members.map((m) => m.atMs)].sort((a, b) => b - a))
+  })
+
+  it('merges a ~128m home GPS-drift pair at the 150m default, but splits it at a tighter radius', () => {
+    // Real shape of this account's home: Feb readings ~128m from the Mar–Jun ones.
+    const home = [charge(1, 3.20896, 101.66891), charge(2, 3.20918, 101.66778)]
+    expect(clusterChargePoints(home)).toHaveLength(1) // 150m default → one Home pin
+    expect(clusterChargePoints(home, 100)).toHaveLength(2) // tighter radius splits it
+  })
+
+  it('keeps charges further than the radius apart as separate markers', () => {
+    // ~1.1km apart → two markers, each a single visit.
+    const out = clusterChargePoints([charge(1, 3.1, 101.7), charge(2, 3.11, 101.71)])
+    expect(out).toHaveLength(2)
+    expect(out.every((c) => c.count === 1)).toBe(true)
+  })
+
+  it('sorts markers by visit count descending', () => {
+    const out = clusterChargePoints([
+      charge(1, 3.2, 101.8), // lone
+      charge(2, 3.1, 101.7),
+      charge(3, 3.1004, 101.7003),
+    ])
+    expect(out.map((c) => c.count)).toEqual([2, 1])
   })
 
   it('skips charges without coordinates', () => {
-    const pts = chargePoints([charge(1, null, null), charge(2, 1, 2), charge(3, 3, null)])
-    expect(pts).toHaveLength(1)
-    expect(pts[0]).toEqual({ lat: 1, lng: 2, id: '2' })
+    const out = clusterChargePoints([charge(1, null, null), charge(2, 1, 2), charge(3, 3, null)])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ lat: 1, lng: 2, count: 1, id: '2' })
   })
 })

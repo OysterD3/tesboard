@@ -6,15 +6,17 @@ import 'leaflet.markercluster/dist/MarkerCluster.css'
 export interface MapPoint {
   lat: number
   lng: number
-  /** Opaque id passed back to `onPointClick` when an individual marker is tapped. */
+  /** Opaque id passed back to `onPointClick` when the place's pin is tapped (opens its most-recent session). */
   id?: string
 }
 
 /**
  * Lifetime map for the Drives / Charging "Map" tabs: every drive as its own GPS
- * polyline, and point markers clustered with leaflet.markercluster — a numbered
- * cluster shows how many markers it merges, and tapping it zooms in and splits it
- * apart, recursively, down to the individual markers (which call `onPointClick`).
+ * polyline, and one plain dot per distinct charge place, clustered with
+ * leaflet.markercluster — a numbered bubble shows how many distinct PLACES it
+ * merges (via `getChildCount`, never the session total), and tapping it zooms in
+ * and splits it apart, down to the individual place dots (which call `onPointClick`
+ * to open that place's most-recent session).
  * Leaflet + the cluster plugin touch `window`, so they're dynamically imported
  * inside the effect — they never enter the SSR/Workers bundle. Dark mode filters
  * the tile pane (see `.evd-map-dark`).
@@ -78,22 +80,30 @@ export function LifetimeMap({
         layersRef.current.push(line)
       }
 
-      // Clustered point markers (tap a cluster → zoom + expand; tap a marker → callback).
+      // Point markers — one per distinct charge LOCATION (clusterChargePoints has
+      // already collapsed every charge within its radius into a single place). Each
+      // place is a plain dot with NO number; tapping it opens that place's
+      // most-recent session. When several distinct places sit close enough to overlap
+      // at the current zoom, leaflet.markercluster groups them into one numbered
+      // bubble whose count is the number of PLACES it covers (getChildCount — never
+      // the session total); tapping the bubble zooms in and splits it apart.
       let clusters: Leaflet.MarkerClusterGroup | null = null
       if (points.length > 0) {
+        const sizeFor = (n: number) => (n < 10 ? 34 : n < 100 ? 40 : 46)
+        const badge = (n: number) => {
+          const size = sizeFor(n)
+          return L.divIcon({
+            html: clusterHtml(n, size, markerColor),
+            className: '',
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+          })
+        }
         clusters = L.markerClusterGroup({
           showCoverageOnHover: false,
           maxClusterRadius: 48,
-          iconCreateFunction: (cluster) => {
-            const n = cluster.getChildCount()
-            const size = n < 10 ? 34 : n < 100 ? 40 : 46
-            return L.divIcon({
-              html: clusterHtml(n, size, markerColor),
-              className: '',
-              iconSize: [size, size],
-              iconAnchor: [size / 2, size / 2],
-            })
-          },
+          // The bubble counts merged PLACES, not charge sessions.
+          iconCreateFunction: (cluster) => badge(cluster.getChildCount()),
         })
         const dot = L.divIcon({ html: dotHtml(markerColor), className: '', iconSize: [16, 16], iconAnchor: [8, 8] })
         for (const p of points) {
