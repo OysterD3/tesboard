@@ -13,6 +13,9 @@ import { ACCENT_PALETTE } from '../../components/dashboard/theme'
 import { getSupabaseBrowser } from '../../lib/supabase-browser'
 import { exportData } from '../../functions/export.functions'
 import { getDbInfo, type DbInfo } from '../../functions/diagnostics.functions'
+import { backfillElevation } from '../../functions/elevation.functions'
+import { backfillAddresses } from '../../functions/geocode.functions'
+import { backfillRouteMatch } from '../../functions/routematch.functions'
 import { downloadString } from '../../lib/download'
 import type { ElectricityRate } from '../../types/db'
 
@@ -23,6 +26,7 @@ export const Route = createFileRoute('/dashboard/settings')({
 const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 function SettingsPage() {
   const { rate, overview, activeVin } = dashApi.useLoaderData()
@@ -131,6 +135,8 @@ function SettingsPage() {
       <RateForm rate={rate} accent={accent} activeVin={activeVin} />
 
       <ExportCard activeVin={activeVin} />
+
+      <BackfillCard />
 
       <DiagnosticsCard />
 
@@ -603,6 +609,219 @@ function ExportCard({ activeVin }: { activeVin: string | null }) {
         </div>
       </div>
     </Card>
+  )
+}
+
+// ── Backfill (data the Fleet API doesn't include) ────────────────────────────
+
+/**
+ * On-demand backfills for data the 2-minute Fleet poll can't capture: ground
+ * elevation (Open-Meteo), reverse-geocoded place names (Nominatim), and
+ * road-matched drive routes (Mapbox). Each loops its throttled server fn until
+ * nothing's left; they're deliberately off the cron path (external rate limits),
+ * so they live here as manual maintenance actions.
+ */
+function BackfillCard() {
+  return (
+    <Card radius={22} style={{ padding: 20 }}>
+      <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>Backfill</span>
+      <p style={{ margin: '6px 0 18px', fontSize: 12, fontWeight: 500, color: TD, lineHeight: 1.5 }}>
+        Fill in data the Fleet API doesn’t include. Each runs against an external service (rate-limited) and is safe to
+        re-run; the new data shows up once it finishes.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <ElevationBackfill />
+        <LocationsBackfill />
+        <RoadMatchBackfill />
+      </div>
+    </Card>
+  )
+}
+
+function BackfillRow({ title, sub, children }: { title: string; sub: string; children: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+        <span style={{ fontSize: 14, fontWeight: 500, color: TX }}>{title}</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: TD, lineHeight: 1.4 }}>{sub}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function BackfillButton({ busy, onClick, label }: { busy: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      style={{
+        flex: 'none',
+        fontSize: 13,
+        fontWeight: 600,
+        color: busy ? TD : TX,
+        background: 'var(--track,#f0f0f3)',
+        border: '1px solid var(--border,rgba(0,0,0,0.07))',
+        borderRadius: 30,
+        padding: '8px 14px',
+        cursor: busy ? 'default' : 'pointer',
+        opacity: busy ? 0.7 : 1,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+/** Look up ground elevation for GPS points the Fleet API didn't include (Open-Meteo). */
+function ElevationBackfill() {
+  const router = useRouter()
+  const run = useServerFn(backfillElevation)
+  const [st, setSt] = useState<{ running: boolean; filled: number; remaining: number | null; done: boolean }>({
+    running: false,
+    filled: 0,
+    remaining: null,
+    done: false,
+  })
+
+  async function go() {
+    if (st.running) return
+    setSt({ running: true, filled: 0, remaining: null, done: false })
+    let filled = 0
+    try {
+      for (let i = 0; i < 80; i++) {
+        const r = await run()
+        filled += r.filled
+        setSt({ running: true, filled, remaining: r.remaining, done: false })
+        if (r.filled === 0 || r.remaining === 0) break
+      }
+    } catch {
+      /* finalize below */
+    } finally {
+      await router.invalidate()
+      setSt((s) => ({ ...s, running: false, done: true }))
+    }
+  }
+
+  const label = st.running
+    ? `Filling… ${st.filled}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
+    : st.done
+      ? st.remaining
+        ? `Filled ${st.filled} · ${st.remaining} left`
+        : `Filled ${st.filled}`
+      : 'Fill elevation'
+
+  return (
+    <BackfillRow title="Elevation" sub="Ground elevation for stored GPS points (Open-Meteo).">
+      <BackfillButton busy={st.running} onClick={go} label={label} />
+    </BackfillRow>
+  )
+}
+
+/** Reverse-geocode drives/charges that only show a time into street names (Nominatim). */
+function LocationsBackfill() {
+  const router = useRouter()
+  const run = useServerFn(backfillAddresses)
+  const [st, setSt] = useState<{ running: boolean; named: number; remaining: number | null; done: boolean }>({
+    running: false,
+    named: 0,
+    remaining: null,
+    done: false,
+  })
+
+  async function go() {
+    if (st.running) return
+    setSt({ running: true, named: 0, remaining: null, done: false })
+    let named = 0
+    try {
+      for (let i = 0; i < 80; i++) {
+        const r = await run()
+        named += r.linked
+        setSt({ running: true, named, remaining: r.remaining, done: false })
+        if (r.linked === 0 || r.remaining === 0) break
+      }
+    } catch {
+      /* finalize below */
+    } finally {
+      await router.invalidate()
+      setSt((s) => ({ ...s, running: false, done: true }))
+    }
+  }
+
+  const label = st.running
+    ? `Resolving… ${st.named}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
+    : st.done
+      ? st.remaining
+        ? `Named ${st.named} · ${st.remaining} left`
+        : `Named ${st.named}`
+      : 'Resolve names'
+
+  return (
+    <BackfillRow title="Place names" sub="Reverse-geocode drives & charges that only show a time (Nominatim).">
+      <BackfillButton busy={st.running} onClick={go} label={label} />
+    </BackfillRow>
+  )
+}
+
+/** Road-match each drive's GPS to the street network via Mapbox (cached; needs MAPBOX_TOKEN). */
+function RoadMatchBackfill() {
+  const run = useServerFn(backfillRouteMatch)
+  const [st, setSt] = useState<{ running: boolean; matched: number; remaining: number | null; done: boolean; configured: boolean }>({
+    running: false,
+    matched: 0,
+    remaining: null,
+    done: false,
+    configured: true,
+  })
+
+  async function go() {
+    if (st.running) return
+    setSt({ running: true, matched: 0, remaining: null, done: false, configured: true })
+    let matched = 0
+    let configured = true
+    let stalls = 0
+    try {
+      for (let i = 0; i < 500; i++) {
+        const r = await run()
+        if (!r.configured) {
+          configured = false
+          break
+        }
+        matched += r.matched
+        setSt({ running: true, matched, remaining: r.remaining, done: false, configured: true })
+        if (r.remaining === 0) break
+        if (r.matched + r.failed > 0) {
+          stalls = 0
+          await sleep(400) // pace well under Mapbox's 300 req/min
+        } else {
+          // No progress — rate-limited/paused. Back off and retry a few times before giving up.
+          if (++stalls >= 6) break
+          await sleep(8000)
+        }
+      }
+    } catch {
+      /* finalize below */
+    } finally {
+      setSt((s) => ({ ...s, running: false, done: true, configured }))
+    }
+  }
+
+  const label = !st.configured
+    ? 'Set MAPBOX_TOKEN'
+    : st.running
+      ? `Snapping… ${st.matched}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
+      : st.done
+        ? st.remaining
+          ? `Snapped ${st.matched} · ${st.remaining} left`
+          : `Snapped ${st.matched}`
+        : 'Snap to roads'
+
+  return (
+    <BackfillRow title="Road matching" sub="Snap each drive's GPS to roads so routes draw on the street network (Mapbox; needs MAPBOX_TOKEN).">
+      <BackfillButton busy={st.running} onClick={go} label={label} />
+    </BackfillRow>
   )
 }
 

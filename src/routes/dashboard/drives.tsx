@@ -1,6 +1,5 @@
-import { createFileRoute, getRouteApi, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { useServerFn } from '@tanstack/react-start'
 import { BatteryGlyph, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
@@ -11,8 +10,6 @@ import { buildDrives } from '../../lib/dashboard-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
-import { backfillAddresses } from '../../functions/geocode.functions'
-import { backfillElevation } from '../../functions/elevation.functions'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives')({
@@ -71,11 +68,6 @@ function DrivesPage() {
           accent={COLOR}
           isDark={isDark}
         />
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <FillElevationButton isDark={isDark} />
-        <ResolveLocationsButton isDark={isDark} />
       </div>
 
       <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
@@ -190,145 +182,5 @@ function Endpoint({
         )}
       </div>
     </div>
-  )
-}
-
-/**
- * On-demand elevation backfill. The Fleet API has no altitude, so this fills
- * `vehicle_snapshot.elevation_m` from the stored GPS via Open-Meteo, looping the
- * throttled `backfillElevation` until nothing's left, then invalidates the loader
- * so freshly-elevated drives light up their elevation chart. Teal to echo the
- * elevation chart accent.
- */
-function FillElevationButton({ isDark }: { isDark: boolean }) {
-  const ELEV = SECTION.insights
-  const router = useRouter()
-  const run = useServerFn(backfillElevation)
-  const [st, setSt] = useState<{ running: boolean; filled: number; remaining: number | null; done: boolean }>({
-    running: false,
-    filled: 0,
-    remaining: null,
-    done: false,
-  })
-
-  async function resolve() {
-    if (st.running) return
-    setSt({ running: true, filled: 0, remaining: null, done: false })
-    let filled = 0
-    try {
-      for (let i = 0; i < 80; i++) {
-        const r = await run()
-        filled += r.filled
-        setSt({ running: true, filled, remaining: r.remaining, done: false })
-        if (r.filled === 0 || r.remaining === 0) break
-      }
-    } catch {
-      /* finalize below */
-    } finally {
-      await router.invalidate()
-      setSt((s) => ({ ...s, running: false, done: true }))
-    }
-  }
-
-  const label = st.running
-    ? `Elevation… ${st.filled}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
-    : st.done
-      ? st.remaining
-        ? `Filled ${st.filled} · ${st.remaining} left`
-        : `Filled ${st.filled}`
-      : 'Fill elevation'
-
-  return (
-    <button
-      type="button"
-      onClick={resolve}
-      disabled={st.running}
-      title="Look up ground elevation for GPS points the Fleet API didn’t include (Open-Meteo)"
-      style={{
-        flex: 'none',
-        cursor: st.running ? 'default' : 'pointer',
-        fontSize: 12,
-        fontWeight: 600,
-        letterSpacing: '-0.01em',
-        color: st.running ? TD : ELEV,
-        background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
-        border: `1px solid ${st.running ? 'var(--border,rgba(0,0,0,0.08))' : ELEV}`,
-        borderRadius: 30,
-        padding: '7px 14px',
-        whiteSpace: 'nowrap',
-        opacity: st.running ? 0.8 : 1,
-      }}
-    >
-      {label}
-    </button>
-  )
-}
-
-/**
- * Reverse-geocode backfill trigger. Loops `backfillAddresses` (throttled
- * server-side) until nothing new resolves, then invalidates the loader so the
- * freshly-named drives (and charges) re-render. Names live rows the way the
- * TeslaMate import already named historical ones.
- */
-function ResolveLocationsButton({ isDark }: { isDark: boolean }) {
-  const router = useRouter()
-  const run = useServerFn(backfillAddresses)
-  const [st, setSt] = useState<{ running: boolean; named: number; remaining: number | null; done: boolean }>({
-    running: false,
-    named: 0,
-    remaining: null,
-    done: false,
-  })
-
-  async function resolve() {
-    if (st.running) return
-    setSt({ running: true, named: 0, remaining: null, done: false })
-    let named = 0
-    try {
-      for (let i = 0; i < 80; i++) {
-        const r = await run()
-        named += r.linked
-        setSt({ running: true, named, remaining: r.remaining, done: false })
-        if (r.linked === 0 || r.remaining === 0) break
-      }
-    } catch {
-      /* finalize below */
-    } finally {
-      await router.invalidate()
-      setSt((s) => ({ ...s, running: false, done: true }))
-    }
-  }
-
-  const label = st.running
-    ? `Resolving… ${st.named}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
-    : st.done
-      ? st.remaining
-        ? `Named ${st.named} · ${st.remaining} left`
-        : `Named ${st.named}`
-      : 'Resolve place names'
-
-  return (
-    <button
-      type="button"
-      onClick={resolve}
-      disabled={st.running}
-      title="Look up street names for drives/charges that only show a time"
-      style={{
-        flex: 'none',
-        cursor: st.running ? 'default' : 'pointer',
-        fontSize: 12,
-        fontWeight: 600,
-        letterSpacing: '-0.01em',
-        color: st.running ? TD : COLOR,
-        background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
-        border: `1px solid ${st.running ? 'var(--border,rgba(0,0,0,0.08))' : COLOR}`,
-        borderRadius: 30,
-        padding: '7px 14px',
-        whiteSpace: 'nowrap',
-        opacity: st.running ? 0.8 : 1,
-      }}
-    >
-      {label}
-    </button>
   )
 }
