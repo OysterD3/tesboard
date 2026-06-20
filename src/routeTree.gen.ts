@@ -16,12 +16,15 @@ import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard/settings'
 import { Route as DashboardLocationsRouteImport } from './routes/dashboard/locations'
 import { Route as DashboardInsightsRouteImport } from './routes/dashboard/insights'
+import { Route as DashboardIdlesRouteImport } from './routes/dashboard/idles'
 import { Route as DashboardGeofencesRouteImport } from './routes/dashboard/geofences'
 import { Route as DashboardFlagsRouteImport } from './routes/dashboard/flags'
 import { Route as DashboardDrivesRouteImport } from './routes/dashboard/drives'
 import { Route as DashboardChargingRouteImport } from './routes/dashboard/charging'
 import { Route as DashboardBatteryRouteImport } from './routes/dashboard/battery'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard/analytics'
+import { Route as DashboardIdlesMapRouteImport } from './routes/dashboard/idles_.map'
+import { Route as DashboardIdlesIdleIdRouteImport } from './routes/dashboard/idles_.$idleId'
 import { Route as DashboardDrivesMapRouteImport } from './routes/dashboard/drives_.map'
 import { Route as DashboardDrivesDriveIdRouteImport } from './routes/dashboard/drives_.$driveId'
 import { Route as DashboardChargingMapRouteImport } from './routes/dashboard/charging_.map'
@@ -65,6 +68,11 @@ const DashboardInsightsRoute = DashboardInsightsRouteImport.update({
   path: '/insights',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardIdlesRoute = DashboardIdlesRouteImport.update({
+  id: '/idles',
+  path: '/idles',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardGeofencesRoute = DashboardGeofencesRouteImport.update({
   id: '/geofences',
   path: '/geofences',
@@ -93,6 +101,16 @@ const DashboardBatteryRoute = DashboardBatteryRouteImport.update({
 const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardIdlesMapRoute = DashboardIdlesMapRouteImport.update({
+  id: '/idles_/map',
+  path: '/idles/map',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardIdlesIdleIdRoute = DashboardIdlesIdleIdRouteImport.update({
+  id: '/idles_/$idleId',
+  path: '/idles/$idleId',
   getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardDrivesMapRoute = DashboardDrivesMapRouteImport.update({
@@ -142,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
   '/dashboard/geofences': typeof DashboardGeofencesRoute
+  '/dashboard/idles': typeof DashboardIdlesRoute
   '/dashboard/insights': typeof DashboardInsightsRoute
   '/dashboard/locations': typeof DashboardLocationsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -151,6 +170,8 @@ export interface FileRoutesByFullPath {
   '/dashboard/charging/map': typeof DashboardChargingMapRoute
   '/dashboard/drives/$driveId': typeof DashboardDrivesDriveIdRoute
   '/dashboard/drives/map': typeof DashboardDrivesMapRoute
+  '/dashboard/idles/$idleId': typeof DashboardIdlesIdleIdRoute
+  '/dashboard/idles/map': typeof DashboardIdlesMapRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
 }
@@ -163,6 +184,7 @@ export interface FileRoutesByTo {
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
   '/dashboard/geofences': typeof DashboardGeofencesRoute
+  '/dashboard/idles': typeof DashboardIdlesRoute
   '/dashboard/insights': typeof DashboardInsightsRoute
   '/dashboard/locations': typeof DashboardLocationsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -172,6 +194,8 @@ export interface FileRoutesByTo {
   '/dashboard/charging/map': typeof DashboardChargingMapRoute
   '/dashboard/drives/$driveId': typeof DashboardDrivesDriveIdRoute
   '/dashboard/drives/map': typeof DashboardDrivesMapRoute
+  '/dashboard/idles/$idleId': typeof DashboardIdlesIdleIdRoute
+  '/dashboard/idles/map': typeof DashboardIdlesMapRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
 }
@@ -186,6 +210,7 @@ export interface FileRoutesById {
   '/dashboard/drives': typeof DashboardDrivesRoute
   '/dashboard/flags': typeof DashboardFlagsRoute
   '/dashboard/geofences': typeof DashboardGeofencesRoute
+  '/dashboard/idles': typeof DashboardIdlesRoute
   '/dashboard/insights': typeof DashboardInsightsRoute
   '/dashboard/locations': typeof DashboardLocationsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -195,6 +220,8 @@ export interface FileRoutesById {
   '/dashboard/charging_/map': typeof DashboardChargingMapRoute
   '/dashboard/drives_/$driveId': typeof DashboardDrivesDriveIdRoute
   '/dashboard/drives_/map': typeof DashboardDrivesMapRoute
+  '/dashboard/idles_/$idleId': typeof DashboardIdlesIdleIdRoute
+  '/dashboard/idles_/map': typeof DashboardIdlesMapRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
 }
@@ -210,6 +237,7 @@ export interface FileRouteTypes {
     | '/dashboard/drives'
     | '/dashboard/flags'
     | '/dashboard/geofences'
+    | '/dashboard/idles'
     | '/dashboard/insights'
     | '/dashboard/locations'
     | '/dashboard/settings'
@@ -219,6 +247,8 @@ export interface FileRouteTypes {
     | '/dashboard/charging/map'
     | '/dashboard/drives/$driveId'
     | '/dashboard/drives/map'
+    | '/dashboard/idles/$idleId'
+    | '/dashboard/idles/map'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
   fileRoutesByTo: FileRoutesByTo
@@ -231,6 +261,7 @@ export interface FileRouteTypes {
     | '/dashboard/drives'
     | '/dashboard/flags'
     | '/dashboard/geofences'
+    | '/dashboard/idles'
     | '/dashboard/insights'
     | '/dashboard/locations'
     | '/dashboard/settings'
@@ -240,6 +271,8 @@ export interface FileRouteTypes {
     | '/dashboard/charging/map'
     | '/dashboard/drives/$driveId'
     | '/dashboard/drives/map'
+    | '/dashboard/idles/$idleId'
+    | '/dashboard/idles/map'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
   id:
@@ -253,6 +286,7 @@ export interface FileRouteTypes {
     | '/dashboard/drives'
     | '/dashboard/flags'
     | '/dashboard/geofences'
+    | '/dashboard/idles'
     | '/dashboard/insights'
     | '/dashboard/locations'
     | '/dashboard/settings'
@@ -262,6 +296,8 @@ export interface FileRouteTypes {
     | '/dashboard/charging_/map'
     | '/dashboard/drives_/$driveId'
     | '/dashboard/drives_/map'
+    | '/dashboard/idles_/$idleId'
+    | '/dashboard/idles_/map'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
   fileRoutesById: FileRoutesById
@@ -326,6 +362,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardInsightsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/idles': {
+      id: '/dashboard/idles'
+      path: '/idles'
+      fullPath: '/dashboard/idles'
+      preLoaderRoute: typeof DashboardIdlesRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/geofences': {
       id: '/dashboard/geofences'
       path: '/geofences'
@@ -366,6 +409,20 @@ declare module '@tanstack/react-router' {
       path: '/analytics'
       fullPath: '/dashboard/analytics'
       preLoaderRoute: typeof DashboardAnalyticsRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/idles_/map': {
+      id: '/dashboard/idles_/map'
+      path: '/idles/map'
+      fullPath: '/dashboard/idles/map'
+      preLoaderRoute: typeof DashboardIdlesMapRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/idles_/$idleId': {
+      id: '/dashboard/idles_/$idleId'
+      path: '/idles/$idleId'
+      fullPath: '/dashboard/idles/$idleId'
+      preLoaderRoute: typeof DashboardIdlesIdleIdRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/dashboard/drives_/map': {
@@ -427,6 +484,7 @@ interface DashboardRouteChildren {
   DashboardDrivesRoute: typeof DashboardDrivesRoute
   DashboardFlagsRoute: typeof DashboardFlagsRoute
   DashboardGeofencesRoute: typeof DashboardGeofencesRoute
+  DashboardIdlesRoute: typeof DashboardIdlesRoute
   DashboardInsightsRoute: typeof DashboardInsightsRoute
   DashboardLocationsRoute: typeof DashboardLocationsRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
@@ -435,6 +493,8 @@ interface DashboardRouteChildren {
   DashboardChargingMapRoute: typeof DashboardChargingMapRoute
   DashboardDrivesDriveIdRoute: typeof DashboardDrivesDriveIdRoute
   DashboardDrivesMapRoute: typeof DashboardDrivesMapRoute
+  DashboardIdlesIdleIdRoute: typeof DashboardIdlesIdleIdRoute
+  DashboardIdlesMapRoute: typeof DashboardIdlesMapRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
@@ -444,6 +504,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardDrivesRoute: DashboardDrivesRoute,
   DashboardFlagsRoute: DashboardFlagsRoute,
   DashboardGeofencesRoute: DashboardGeofencesRoute,
+  DashboardIdlesRoute: DashboardIdlesRoute,
   DashboardInsightsRoute: DashboardInsightsRoute,
   DashboardLocationsRoute: DashboardLocationsRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
@@ -452,6 +513,8 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardChargingMapRoute: DashboardChargingMapRoute,
   DashboardDrivesDriveIdRoute: DashboardDrivesDriveIdRoute,
   DashboardDrivesMapRoute: DashboardDrivesMapRoute,
+  DashboardIdlesIdleIdRoute: DashboardIdlesIdleIdRoute,
+  DashboardIdlesMapRoute: DashboardIdlesMapRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(

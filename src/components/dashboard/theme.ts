@@ -12,6 +12,7 @@ export type ThemeName = 'light' | 'dark'
 export const SECTION = {
   drives: '#6366f1',
   charging: '#f59e0b',
+  idles: '#64748b',
   insights: '#14b8a6',
   analytics: '#0ea5e9',
   settings: '#8b5cf6',
@@ -113,6 +114,8 @@ export const ICON = {
   thermometer: 'M14 14.76V5a2 2 0 1 0-4 0v9.76a4 4 0 1 0 4 0z',
   pin: 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   clock: 'M12 7v5l3 2 M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  // Square-parking "P" — the idle/parked marker (matches the app's P pins).
+  parking: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M9 17V7h4a3 3 0 0 1 0 6H9',
   mountain: 'M8 3l4 8 5-5 5 15H2L8 3z',
   dollar: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6',
   plug: 'M9 3v5 M15 3v5 M7 8h10v3a5 5 0 0 1-10 0V8z M12 16v5',
