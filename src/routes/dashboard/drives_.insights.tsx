@@ -1,12 +1,12 @@
 import { createFileRoute, getRouteApi } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDriveInsights } from '../../lib/dashboard-vm'
-import { resolveRange, type RangeState } from '../../lib/range-filter'
+import { lastChargeMsOf, resolveRange } from '../../lib/range-filter'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives_/insights')({
@@ -31,12 +31,12 @@ function money(amount: number | null, currency: string, digits = 0): string {
  */
 function DrivesInsightsPage() {
   const { drives, charging, now } = dashApi.useLoaderData()
-  const { units: u, accent, theme } = useDash()
+  const { units: u, accent, theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
-  const [range, setRange] = useState<RangeState>({ key: '7d' })
 
   const nowMs = Date.parse(now)
-  const vm = buildDriveInsights(drives.drives, charging.sessions, resolveRange(range, nowMs))
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const vm = buildDriveInsights(drives.drives, charging.sessions, resolveRange(range, nowMs, lastChargeMs))
 
   const milestones = vm.hasDrives
     ? [
@@ -53,7 +53,7 @@ function DrivesInsightsPage() {
         <SectionTabs section="drives" value="insights" accent={COLOR} isDark={isDark} />
       </div>
 
-      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} />
+      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} lastChargeMs={lastChargeMs} />
 
       {vm.hasDrives ? (
         <Card radius={22} style={{ padding: '6px 20px 18px' }}>

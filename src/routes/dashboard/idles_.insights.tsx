@@ -1,12 +1,12 @@
 import { createFileRoute, getRouteApi } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { Card, EmptyCard, HoverBars, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
-import { rangeLabel, rangeToIso, resolveRange, type RangeState } from '../../lib/range-filter'
+import { lastChargeMsOf, rangeLabel, rangeToIso, resolveRange } from '../../lib/range-filter'
 import { distUnit, fmtDay, fmtDist } from '../../lib/units'
 import {
   getPhantomCauses,
@@ -34,13 +34,13 @@ const r1 = (n: number) => Math.round(n * 10) / 10
  * time" hits the server's per-day SQL aggregation rather than a giant row scan.
  */
 function IdlesInsightsPage() {
-  const { activeVin, now } = dashApi.useLoaderData()
-  const { units: u, theme } = useDash()
+  const { activeVin, charging, now } = dashApi.useLoaderData()
+  const { units: u, theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
-  const [range, setRange] = useState<RangeState>({ key: '7d' })
 
   const nowMs = Date.parse(now)
-  const { from, to } = rangeToIso(resolveRange(range, nowMs))
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const { from, to } = rangeToIso(resolveRange(range, nowMs, lastChargeMs))
   const vin = activeVin ?? undefined
 
   const fetchDrain = useServerFn(getPhantomDrain)
@@ -77,7 +77,7 @@ function IdlesInsightsPage() {
         <SectionTabs section="idles" value="insights" accent={COLOR} isDark={isDark} />
       </div>
 
-      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} />
+      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} lastChargeMs={lastChargeMs} />
 
       {/* Phantom miles (derived from snapshots) */}
       {loading && phantom == null ? (

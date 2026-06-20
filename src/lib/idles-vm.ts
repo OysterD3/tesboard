@@ -136,6 +136,8 @@ export interface IdleVM {
   /** Park coordinates (the preceding drive's end). */
   lat: number | null
   lng: number | null
+  /** Idle start (preceding drive's end) in epoch-ms — for date-range filtering. */
+  startMs: number
   monthKey: string
   monthLabel: string
 }
@@ -202,6 +204,7 @@ export function buildIdles(drives: DriveWithLocation[], opts: BuildIdlesOpts = {
       rangeUsedKm,
       lat: prev.end_lat,
       lng: prev.end_lng,
+      startMs,
       monthKey,
       monthLabel,
     })

@@ -1,23 +1,16 @@
-import { Segmented } from './primitives'
-import { MAX_CUSTOM_DAYS, clampCustom, toYmdUtc, type RangeKey, type RangeState } from '../../lib/range-filter'
+import { RANGE_CHIPS, clampCustom, toYmdUtc, type RangeKey, type RangeState } from '../../lib/range-filter'
 
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const DAY_MS = 86_400_000
 
-const OPTIONS = [
-  { label: '7d', value: '7d' as const },
-  { label: '30d', value: '30d' as const },
-  { label: 'All', value: 'all' as const },
-  { label: 'Custom', value: 'custom' as const },
-]
-
 /**
- * Date-range control for the Insights pages: a 7d / 30d / All / Custom segmented
- * toggle, plus a start/end date pair when "Custom" is active. Custom spans are
- * clamped to MAX_CUSTOM_DAYS and capped at `nowMs` (no future dates). `nowMs` is
- * the server-anchored "now" from the dashboard loader, so the default window
- * resolves identically on SSR and the client (no hydration flicker).
+ * Horizontal scrollable date-range chips shared by every dated view (Drives /
+ * Charging / Idles → History, Map, Insights). Mirrors the MonthFilter chip style.
+ * "Custom" reveals a start/end date pair. "Since last charge" is hidden when the
+ * account has no charges (no anchor). `nowMs` is the server-anchored "now" from
+ * the dashboard loader so the default window resolves identically on SSR and the
+ * client (no hydration flicker).
  */
 export function RangeFilter({
   state,
@@ -25,17 +18,23 @@ export function RangeFilter({
   accent,
   isDark,
   nowMs,
+  lastChargeMs = null,
 }: {
   state: RangeState
   onChange: (s: RangeState) => void
   accent: string
   isDark: boolean
   nowMs: number
+  lastChargeMs?: number | null
 }) {
   const todayYmd = toYmdUtc(nowMs)
+  const chips = RANGE_CHIPS.filter((c) => c.key !== 'sinceLastCharge' || lastChargeMs != null)
+  // A persisted "since last charge" with no charge resolves to all-time (see
+  // resolveRange) and its chip is hidden — highlight "All time" so the bar still
+  // reflects the window that's actually applied, rather than nothing.
+  const effectiveKey = state.key === 'sinceLastCharge' && lastChargeMs == null ? 'all' : state.key
 
   function selectKey(key: RangeKey) {
-    if (key === state.key) return
     if (key === 'custom') {
       // Seed a valid last-7-days window so the page never goes blank on entry.
       onChange({
@@ -55,31 +54,64 @@ export function RangeFilter({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <Segmented options={OPTIONS} value={state.key} onChange={selectKey} accent={accent} isDark={isDark} />
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          overflowX: 'auto',
+          paddingBottom: 2,
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {chips.map((c) => {
+          const active = c.key === effectiveKey
+          return (
+            <button
+              key={c.key}
+              type="button"
+              aria-pressed={active}
+              onClick={() => selectKey(c.key)}
+              style={{
+                flex: 'none',
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: 600,
+                letterSpacing: '-0.01em',
+                padding: '7px 14px',
+                borderRadius: 30,
+                whiteSpace: 'nowrap',
+                transition: 'background 120ms, color 120ms',
+                color: active ? '#fff' : TX,
+                background: active ? accent : isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
+                border: `1px solid ${active ? accent : 'var(--border,rgba(0,0,0,0.08))'}`,
+              }}
+            >
+              {c.label}
+            </button>
+          )
+        })}
+      </div>
 
       {state.key === 'custom' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <DateInput
-              label="Start date"
-              value={state.customFrom ?? ''}
-              max={todayYmd}
-              isDark={isDark}
-              onChange={(v) => applyCustom(v, state.customTo ?? todayYmd)}
-            />
-            <span aria-hidden="true" style={{ color: TD, fontSize: 13, fontWeight: 600, flex: 'none' }}>–</span>
-            <DateInput
-              label="End date"
-              value={state.customTo ?? ''}
-              min={state.customFrom ?? undefined}
-              max={todayYmd}
-              isDark={isDark}
-              onChange={(v) => applyCustom(state.customFrom ?? v, v)}
-            />
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 500, color: TD, paddingLeft: 2 }}>
-            Up to {MAX_CUSTOM_DAYS} days
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DateInput
+            label="Start date"
+            value={state.customFrom ?? ''}
+            max={todayYmd}
+            isDark={isDark}
+            onChange={(v) => applyCustom(v, state.customTo ?? todayYmd)}
+          />
+          <span aria-hidden="true" style={{ color: TD, fontSize: 13, fontWeight: 600, flex: 'none' }}>–</span>
+          <DateInput
+            label="End date"
+            value={state.customTo ?? ''}
+            min={state.customFrom ?? undefined}
+            max={todayYmd}
+            isDark={isDark}
+            onChange={(v) => applyCustom(state.customFrom ?? v, v)}
+          />
         </div>
       )}
     </div>

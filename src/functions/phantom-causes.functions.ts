@@ -22,9 +22,10 @@ import {
   type PhantomCauseSnap,
   type PhantomCauseSlice,
 } from '../lib/analytics-vm'
-import { clampServerWindow } from '../lib/range-filter'
 
 const MAX_INTERVAL_DROP_MI = 10
+// Windows up to this span pull raw rows (tested JS); wider ones aggregate in SQL.
+const JS_WINDOW_MAX_DAYS = 60
 
 export interface PhantomCausesPayload {
   /** False when the cause-flag columns don't exist yet (migration not applied). */
@@ -48,12 +49,16 @@ export const getPhantomCauses = createServerFn({ method: 'GET' })
       const from = data?.from ?? null
       const to = data?.to ?? null
       try {
-        // All-time (no lower bound, or an unparseable bound) → SQL aggregation.
-        const win = from == null ? null : clampServerWindow(from, to)
-        if (win == null) return await causesAllTime(db, userId, vin)
+        // No lower bound (or unparseable) → all-time SQL aggregation.
+        const fromMs = from ? Date.parse(from) : NaN
+        if (from == null || Number.isNaN(fromMs)) return await causesAggregated(db, userId, vin, null, null)
 
-        // Bounded window → pull rows + the proven JS path. `win` is server-clamped
-        // to MAX_CUSTOM_DAYS so a crafted request can't force an unbounded scan.
+        // Wide window → bounded SQL aggregation (CPU-safe; can't be forced unbounded).
+        const toMs = to ? Date.parse(to) : NaN
+        const spanDays = ((Number.isNaN(toMs) ? Date.now() : toMs) - fromMs) / 86_400_000
+        if (spanDays > JS_WINDOW_MAX_DAYS) return await causesAggregated(db, userId, vin, from, to)
+
+        // Small bounded window → pull rows + the proven JS path.
         const snaps = await db
           .select({
             est: vehicleSnapshot.est_battery_range,
@@ -70,8 +75,8 @@ export const getPhantomCauses = createServerFn({ method: 'GET' })
           .where(
             and(
               eq(vehicleSnapshot.user_id, userId),
-              gte(vehicleSnapshot.recorded_at, win.from),
-              lte(vehicleSnapshot.recorded_at, win.to),
+              gte(vehicleSnapshot.recorded_at, from),
+              to ? lte(vehicleSnapshot.recorded_at, to) : undefined,
               vin ? eq(vehicleSnapshot.vin, vin) : undefined,
             ),
           )
@@ -101,13 +106,22 @@ export const getPhantomCauses = createServerFn({ method: 'GET' })
   )
 
 /**
- * All-time cause attribution in SQL. Same LAG window-function pattern as the
- * phantom-drain aggregation, with the cause CASE mirroring `buildPhantomCauses`'
- * priority (sleep gap → Sentry → climate → cold → awake). Throws if the cause
- * columns are absent — the caller's catch turns that into `available:false`.
+ * Cause attribution aggregated in SQL over an optional [from,to] window (both
+ * null = all-time). Same LAG window-function pattern as the phantom-drain
+ * aggregation, with the cause CASE mirroring `buildPhantomCauses`' priority
+ * (sleep gap → Sentry → climate → cold → awake). Throws if the cause columns are
+ * absent — the caller's catch turns that into `available:false`.
  */
-async function causesAllTime(db: Db, userId: string, vin: string | undefined): Promise<PhantomCausesPayload> {
+async function causesAggregated(
+  db: Db,
+  userId: string,
+  vin: string | undefined,
+  from: string | null,
+  to: string | null,
+): Promise<PhantomCausesPayload> {
   const vinCond = vin ? sql`and vin = ${vin}` : sql``
+  const fromCond = from ? sql`and recorded_at >= ${from}` : sql``
+  const toCond = to ? sql`and recorded_at <= ${to}` : sql``
   const result = await db.execute(sql`
     with ordered as (
       select recorded_at as at,
@@ -118,7 +132,7 @@ async function causesAllTime(db: Db, userId: string, vin: string | undefined): P
              sentry_mode as sentry,
              (coalesce(is_climate_on, false) or coalesce(is_preconditioning, false)) as climate
       from vehicle_snapshot
-      where user_id = ${userId} ${vinCond}
+      where user_id = ${userId} ${vinCond} ${fromCond} ${toCond}
     ),
     lagged as (
       select at, r, shift, charging, oc, sentry, climate,

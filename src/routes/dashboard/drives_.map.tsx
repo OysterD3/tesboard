@@ -1,11 +1,12 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { SectionTabs } from '../../components/dashboard/SectionTabs'
+import { MapFilterControls } from '../../components/dashboard/MapFilterControls'
 import { LifetimeMap, MapMessage, MapOverlay, type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
 import { mergeNearbyPoints } from '../../lib/map-vm'
+import { lastChargeMsOf, rangeToIso, resolveRange } from '../../lib/range-filter'
 import { getDriveRoutes, type DriveRoutesMap } from '../../functions/drives.functions'
 
 export const Route = createFileRoute('/dashboard/drives_/map')({
@@ -24,10 +25,14 @@ const COLOR = SECTION.drives
  * Road-matching itself is run from Settings → Backfill.
  */
 function DrivesMapPage() {
-  const { activeVin } = dashApi.useLoaderData()
-  const { theme } = useDash()
+  const { activeVin, charging, now } = dashApi.useLoaderData()
+  const { theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
+
+  const nowMs = Date.parse(now)
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const { from, to } = rangeToIso(resolveRange(range, nowMs, lastChargeMs))
 
   const fetchRoutes = useServerFn(getDriveRoutes)
   const [routesMap, setRoutesMap] = useState<DriveRoutesMap | null>(null)
@@ -37,7 +42,7 @@ function DrivesMapPage() {
     let cancelled = false
     setRoutesLoading(true)
     setRoutesMap(null)
-    fetchRoutes({ data: { vin: activeVin ?? undefined } })
+    fetchRoutes({ data: { vin: activeVin ?? undefined, from, to } })
       .then((r) => {
         if (!cancelled) setRoutesMap(r)
       })
@@ -50,7 +55,7 @@ function DrivesMapPage() {
     return () => {
       cancelled = true
     }
-  }, [fetchRoutes, activeVin])
+  }, [fetchRoutes, activeVin, from, to])
 
   // Drive start/end pins. Most routes share the same driveway / destination, so
   // the raw endpoints are merged by proximity (150m, same as the charge map) into
@@ -71,7 +76,17 @@ function DrivesMapPage() {
   return (
     <MapOverlay
       onBack={toHistory}
-      topLeft={<SectionTabs section="drives" value="map" accent={COLOR} isDark={isDark} />}
+      topLeft={
+        <MapFilterControls
+          section="drives"
+          range={range}
+          onRangeChange={setRange}
+          accent={COLOR}
+          isDark={isDark}
+          nowMs={nowMs}
+          lastChargeMs={lastChargeMs}
+        />
+      }
       caption={
         hasRoutes
           ? `${routesMap!.driveCount} route${routesMap!.driveCount === 1 ? '' : 's'} · ${drivePins.length} start/end place${drivePins.length === 1 ? '' : 's'} · road-matched (drives too GPS-sparse to snap are hidden)`

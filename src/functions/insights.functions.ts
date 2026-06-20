@@ -5,12 +5,13 @@
  * is parked (no shift state) and not charging is standby loss. Reads only
  * Postgres, scoped to the user.
  *
- * The Insights date filter passes an explicit window. BOUNDED windows (7d / 30d /
- * custom ≤ 60d) pull the raw rows and run the unit-tested `buildPhantomDrain`.
- * ALL-TIME aggregates per-day in SQL (window functions) so the row volume scales
- * with the number of days, not the number of snapshots — otherwise an unbounded
- * scan would blow the Worker CPU budget. The SQL mirrors `buildPhantomDrain`'s
- * math exactly (see the inline notes).
+ * The date filter passes an explicit window. The server routes by SPAN, not by a
+ * cap: a SMALL window (≤ JS_WINDOW_MAX_DAYS) pulls the raw rows and runs the
+ * unit-tested `buildPhantomDrain`; a WIDE or all-time window aggregates per-day in
+ * SQL (window functions) so the row volume scales with the number of days, not
+ * the number of snapshots — an unbounded raw scan would blow the Worker CPU
+ * budget, and that path can't be forced by a crafted request. The SQL mirrors
+ * `buildPhantomDrain`'s math exactly (see the inline notes).
  */
 import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq, gte, lte, sql } from 'drizzle-orm'
@@ -19,7 +20,6 @@ import { withDb, type Db } from '../server/db'
 import { rangeVinFilter, type RangeVinFilter } from './vin'
 import { vehicleSnapshot } from '../server/schema'
 import { buildPhantomDrain, type PhantomDay, type PhantomSnap } from '../lib/analytics-vm'
-import { clampServerWindow } from '../lib/range-filter'
 
 export interface PhantomDrain {
   hasData: boolean
@@ -34,6 +34,10 @@ export interface PhantomDrain {
 }
 
 const MAX_INTERVAL_DROP_MI = 10 // larger single-step drops are noise/data gaps, not standby
+// Windows up to this span pull raw rows (the proven JS path); wider ones aggregate
+// in SQL. ~60d of 2-min snapshots is the largest row-pull proven safe under the
+// Worker CPU budget.
+const JS_WINDOW_MAX_DAYS = 60
 
 const EMPTY_DRAIN: PhantomDrain = { hasData: false, lostMi: 0, perDayMi: 0, days: 0, series: [] }
 
@@ -53,13 +57,16 @@ export async function getPhantomDrainCore(
   const from = data?.from ?? null
   const to = data?.to ?? null
 
-  // All-time (no lower bound, or an unparseable bound) → SQL per-day aggregation
-  // (CPU-safe at any history size).
-  const win = from == null ? null : clampServerWindow(from, to)
-  if (win == null) return phantomDrainAllTime(db, userId, vin)
+  // No lower bound (or unparseable) → all-time SQL aggregation.
+  const fromMs = from ? Date.parse(from) : NaN
+  if (from == null || Number.isNaN(fromMs)) return phantomDrainAggregated(db, userId, vin, null, null)
 
-  // Bounded window → pull rows + the proven JS path. `win` is server-clamped to
-  // MAX_CUSTOM_DAYS so a crafted request can't force an unbounded scan here.
+  // Wide window → bounded SQL aggregation (CPU-safe; can't be forced unbounded).
+  const toMs = to ? Date.parse(to) : NaN
+  const spanDays = ((Number.isNaN(toMs) ? Date.now() : toMs) - fromMs) / 86_400_000
+  if (spanDays > JS_WINDOW_MAX_DAYS) return phantomDrainAggregated(db, userId, vin, from, to)
+
+  // Small bounded window → pull rows + the proven JS path.
   const snaps = await db
     .select({
       est: vehicleSnapshot.est_battery_range,
@@ -72,8 +79,8 @@ export async function getPhantomDrainCore(
     .where(
       and(
         eq(vehicleSnapshot.user_id, userId),
-        gte(vehicleSnapshot.recorded_at, win.from),
-        lte(vehicleSnapshot.recorded_at, win.to),
+        gte(vehicleSnapshot.recorded_at, from),
+        to ? lte(vehicleSnapshot.recorded_at, to) : undefined,
         vin ? eq(vehicleSnapshot.vin, vin) : undefined,
       ),
     )
@@ -85,14 +92,23 @@ export async function getPhantomDrainCore(
 const round1 = (n: number) => Math.round(n * 10) / 10
 
 /**
- * All-time phantom drain, aggregated in SQL. Window functions reproduce the
- * consecutive-pair logic in `buildPhantomDrain`: range = COALESCE(est, battery);
- * both the previous and current reading parked (shift NULL/'P') and not Charging;
- * a positive drop ≤ MAX_INTERVAL_DROP_MI counts, bucketed by UTC calendar day.
- * Span uses the full min/max recorded_at (matching the JS first/last timestamp).
+ * Phantom drain aggregated in SQL over an optional [from,to] window (both null =
+ * all-time). Window functions reproduce the consecutive-pair logic in
+ * `buildPhantomDrain`: range = COALESCE(est, battery); both the previous and
+ * current reading parked (shift NULL/'P') and not Charging; a positive drop ≤
+ * MAX_INTERVAL_DROP_MI counts, bucketed by UTC calendar day. Span uses the full
+ * min/max recorded_at in the window (matching the JS first/last timestamp).
  */
-async function phantomDrainAllTime(db: Db, userId: string, vin: string | undefined): Promise<PhantomDrain> {
+async function phantomDrainAggregated(
+  db: Db,
+  userId: string,
+  vin: string | undefined,
+  from: string | null,
+  to: string | null,
+): Promise<PhantomDrain> {
   const vinCond = vin ? sql`and vin = ${vin}` : sql``
+  const fromCond = from ? sql`and recorded_at >= ${from}` : sql``
+  const toCond = to ? sql`and recorded_at <= ${to}` : sql``
   const result = await db.execute(sql`
     with ordered as (
       select recorded_at as at,
@@ -100,7 +116,7 @@ async function phantomDrainAllTime(db: Db, userId: string, vin: string | undefin
              shift_state as shift,
              charging_state as charging
       from vehicle_snapshot
-      where user_id = ${userId} ${vinCond}
+      where user_id = ${userId} ${vinCond} ${fromCond} ${toCond}
     ),
     lagged as (
       select at, r, shift, charging,

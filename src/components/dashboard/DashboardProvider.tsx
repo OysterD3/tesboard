@@ -16,21 +16,58 @@ import {
   type Units,
 } from '../../lib/units'
 import { DEFAULT_ACCENT, type ThemeName } from './theme'
+import type { RangeKey, RangeState } from '../../lib/range-filter'
 
 interface DashboardState {
   theme: ThemeName
   units: Units
   accent: string
+  /** The shared date-range filter, applied across History / Map / Insights and
+   *  persisted across reloads (default Last 7 days). */
+  range: RangeState
   toggleTheme: () => void
   setTheme: (theme: ThemeName) => void
   setUnit: <K extends keyof Units>(key: K, value: Units[K]) => void
   setAccent: (hex: string) => void
+  setRange: (range: RangeState) => void
 }
 
 const Ctx = createContext<DashboardState | null>(null)
 
 const UNITS_KEY = 'evd:units'
 const ACCENT_KEY = 'evd:accent'
+const RANGE_KEY = 'evd:range'
+
+const DEFAULT_RANGE: RangeState = { key: '7d' }
+const VALID_RANGE_KEYS = new Set<RangeKey>([
+  'today',
+  'yesterday',
+  '7d',
+  '30d',
+  'thisYear',
+  'lastYear',
+  'sinceLastCharge',
+  'all',
+  'custom',
+])
+
+function readRange(): RangeState {
+  try {
+    const raw = window.localStorage.getItem(RANGE_KEY)
+    if (!raw) return DEFAULT_RANGE
+    const p = JSON.parse(raw) as RangeState
+    if (!p || !VALID_RANGE_KEYS.has(p.key)) return DEFAULT_RANGE
+    return p.key === 'custom'
+      ? {
+          key: 'custom',
+          customFrom: typeof p.customFrom === 'string' ? p.customFrom : null,
+          customTo: typeof p.customTo === 'string' ? p.customTo : null,
+        }
+      : { key: p.key }
+  } catch {
+    return DEFAULT_RANGE
+  }
+}
 
 function readUnits(): Units {
   try {
@@ -75,10 +112,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeName>('light')
   const [units, setUnits] = useState<Units>(DEFAULT_UNITS)
   const [accent, setAccentState] = useState<string>(DEFAULT_ACCENT)
+  const [range, setRangeState] = useState<RangeState>(DEFAULT_RANGE)
 
   useEffect(() => {
     setTheme(readGlobalTheme())
     setUnits(readUnits())
+    setRangeState(readRange())
     try {
       const a = window.localStorage.getItem(ACCENT_KEY)
       if (a) setAccentState(a)
@@ -121,9 +160,18 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const setRange = useCallback((next: RangeState) => {
+    setRangeState(next)
+    try {
+      window.localStorage.setItem(RANGE_KEY, JSON.stringify(next))
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   const value = useMemo(
-    () => ({ theme, units, accent, toggleTheme, setTheme: setThemeExplicit, setUnit, setAccent }),
-    [theme, units, accent, toggleTheme, setThemeExplicit, setUnit, setAccent],
+    () => ({ theme, units, accent, range, toggleTheme, setTheme: setThemeExplicit, setUnit, setAccent, setRange }),
+    [theme, units, accent, range, toggleTheme, setThemeExplicit, setUnit, setAccent, setRange],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

@@ -1,10 +1,11 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { SectionTabs } from '../../components/dashboard/SectionTabs'
+import { MapFilterControls } from '../../components/dashboard/MapFilterControls'
 import { LifetimeMap, MapMessage, MapOverlay } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
 import { clusterChargePoints } from '../../lib/map-vm'
+import { filterByRange, lastChargeMsOf, resolveRange } from '../../lib/range-filter'
 
 export const Route = createFileRoute('/dashboard/charging_/map')({
   component: ChargingMapPage,
@@ -21,12 +22,18 @@ const COLOR = SECTION.charging
  * 150m) — no extra fetch.
  */
 function ChargingMapPage() {
-  const { charging } = dashApi.useLoaderData()
-  const { theme } = useDash()
+  const { charging, now } = dashApi.useLoaderData()
+  const { theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
 
-  const points = useMemo(() => clusterChargePoints(charging.sessions), [charging.sessions])
+  const nowMs = Date.parse(now)
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const resolved = useMemo(() => resolveRange(range, nowMs, lastChargeMs), [range, nowMs, lastChargeMs])
+  const points = useMemo(
+    () => clusterChargePoints(filterByRange(charging.sessions, resolved)),
+    [charging.sessions, resolved],
+  )
   const totalCharges = useMemo(() => points.reduce((s, p) => s + p.count, 0), [points])
 
   const toHistory = () => navigate({ to: '/dashboard/charging', search: (prev) => prev })
@@ -35,7 +42,17 @@ function ChargingMapPage() {
   return (
     <MapOverlay
       onBack={toHistory}
-      topLeft={<SectionTabs section="charging" value="map" accent={COLOR} isDark={isDark} />}
+      topLeft={
+        <MapFilterControls
+          section="charging"
+          range={range}
+          onRangeChange={setRange}
+          accent={COLOR}
+          isDark={isDark}
+          nowMs={nowMs}
+          lastChargeMs={lastChargeMs}
+        />
+      }
       caption={
         hasPoints
           ? `${points.length} location${points.length === 1 ? '' : 's'} · ${totalCharges} charge${totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to zoom in`

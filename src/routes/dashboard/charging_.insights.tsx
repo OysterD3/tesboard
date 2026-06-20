@@ -1,12 +1,12 @@
 import { createFileRoute, getRouteApi } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { Card, EmptyCard, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
 import { buildChargeInsights } from '../../lib/dashboard-vm'
-import { resolveRange, type RangeState } from '../../lib/range-filter'
+import { lastChargeMsOf, resolveRange } from '../../lib/range-filter'
 import { distUnit } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/charging_/insights')({
@@ -31,12 +31,12 @@ function money(amount: number | null, currency: string, digits = 0): string {
  */
 function ChargingInsightsPage() {
   const { charging, now } = dashApi.useLoaderData()
-  const { units: u, theme } = useDash()
+  const { units: u, theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
-  const [range, setRange] = useState<RangeState>({ key: '7d' })
 
   const nowMs = Date.parse(now)
-  const vm = buildChargeInsights(charging.sessions, resolveRange(range, nowMs))
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const vm = buildChargeInsights(charging.sessions, resolveRange(range, nowMs, lastChargeMs))
 
   const homePct = vm.homePct != null ? Math.round(vm.homePct * 100) : null
   const costPerDist = vm.costPerMi != null ? (u.dist === 'mi' ? vm.costPerMi : vm.costPerMi / 1.60934) : null
@@ -48,7 +48,7 @@ function ChargingInsightsPage() {
         <SectionTabs section="charging" value="insights" accent={COLOR} isDark={isDark} />
       </div>
 
-      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} />
+      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} lastChargeMs={lastChargeMs} />
 
       {vm.hasCharge ? (
         <Card radius={22} style={{ padding: 20 }}>

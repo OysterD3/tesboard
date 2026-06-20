@@ -1,14 +1,16 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { BatteryGlyph, Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
+import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildChargingReview, buildSessions, type SessionVM } from '../../lib/dashboard-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
-import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
-import { groupByMonth, monthOptions } from '../../lib/month-group'
+import { MonthHeader } from '../../components/dashboard/MonthFilter'
+import { groupByMonth } from '../../lib/month-group'
+import { filterByRange, lastChargeMsOf, resolveRange } from '../../lib/range-filter'
 
 export const Route = createFileRoute('/dashboard/charging')({
   component: ChargingPage,
@@ -33,32 +35,25 @@ function fmtDur(min: number): string {
 }
 
 function ChargingPage() {
-  const { charging } = dashApi.useLoaderData()
-  const { theme } = useDash()
+  const { charging, now } = dashApi.useLoaderData()
+  const { theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const tz = useDisplayTz()
   const navigate = useNavigate()
-  const all = buildSessions(charging, tz)
   const review = buildChargingReview(charging, tz)
-  const months = monthOptions(all)
-  const [month, setMonth] = useState('all')
-  const visible = month === 'all' ? all : all.filter((s) => s.monthKey === month)
-  const rows = groupByMonth(visible, (s) => s.id)
+
+  const nowMs = Date.parse(now)
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const resolved = useMemo(() => resolveRange(range, nowMs, lastChargeMs), [range, nowMs, lastChargeMs])
+  const windowed = useMemo(
+    () => buildSessions({ ...charging, sessions: filterByRange(charging.sessions, resolved) }, tz),
+    [charging, resolved, tz],
+  )
+  const rows = groupByMonth(windowed, (s) => s.id)
+  const noneAtAll = charging.sessions.length === 0
 
   function open(id: string) {
     navigate({ to: '/dashboard/charging/$chargeId', params: { chargeId: id }, search: (prev) => prev })
-  }
-
-  if (all.length === 0) {
-    return (
-      <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <ViewTitle>Charging</ViewTitle>
-        <EmptyCard
-          title="No charging sessions yet"
-          body="Home sessions appear as the poller observes charging; Supercharger history backfills from Tesla’s billing on the hourly reconcile."
-        />
-      </div>
-    )
   }
 
   return (
@@ -117,16 +112,27 @@ function ChargingPage() {
       )}
 
       <span style={{ fontSize: 13, fontWeight: 600, color: TD, paddingLeft: 2 }}>History</span>
-      <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
-      <VirtualList
-        items={rows}
-        getKey={(r) => r.key}
-        estimateRowHeight={150}
-        renderRow={(r) => {
-          if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
-          return <ChargeCard c={r.item} isDark={isDark} onClick={() => open(r.item.id)} />
-        }}
-      />
+      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} lastChargeMs={lastChargeMs} />
+      {rows.length === 0 ? (
+        <EmptyCard
+          title={noneAtAll ? 'No charging sessions yet' : 'No charging in this range'}
+          body={
+            noneAtAll
+              ? 'Home sessions appear as the poller observes charging; Supercharger history backfills from Tesla’s billing on the hourly reconcile.'
+              : 'Try a wider date range to see more sessions.'
+          }
+        />
+      ) : (
+        <VirtualList
+          items={rows}
+          getKey={(r) => r.key}
+          estimateRowHeight={150}
+          renderRow={(r) => {
+            if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
+            return <ChargeCard c={r.item} isDark={isDark} onClick={() => open(r.item.id)} />
+          }}
+        />
+      )}
     </div>
   )
 }

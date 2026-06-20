@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   ALL_TIME,
-  MAX_CUSTOM_DAYS,
   clampCustom,
-  clampServerWindow,
   filterByRange,
+  inRangeMs,
   inResolvedRange,
+  lastChargeMsOf,
   rangeLabel,
   rangeToIso,
   resolveRange,
@@ -13,52 +13,73 @@ import {
 } from './range-filter'
 
 const DAY = 86_400_000
-// Fixed anchor so nothing depends on the wall clock: 2026-06-20T12:00:00Z
+// Fixed anchor so nothing depends on the wall clock: 2026-06-20T12:00:00Z (a Saturday)
 const NOW = Date.parse('2026-06-20T12:00:00.000Z')
 
 describe('resolveRange', () => {
-  it('7d window is exactly 7 days back from now, inclusive of now', () => {
+  it('7d / 30d count back from now', () => {
     expect(resolveRange({ key: '7d' }, NOW)).toEqual({ fromMs: NOW - 7 * DAY, toMs: NOW })
-  })
-
-  it('30d window is exactly 30 days back from now', () => {
     expect(resolveRange({ key: '30d' }, NOW)).toEqual({ fromMs: NOW - 30 * DAY, toMs: NOW })
   })
 
-  it('all is unbounded on both sides', () => {
+  it('today is the UTC calendar day up to now', () => {
+    expect(resolveRange({ key: 'today' }, NOW)).toEqual({
+      fromMs: Date.parse('2026-06-20T00:00:00.000Z'),
+      toMs: NOW,
+    })
+  })
+
+  it('yesterday is the full previous UTC day', () => {
+    expect(resolveRange({ key: 'yesterday' }, NOW)).toEqual({
+      fromMs: Date.parse('2026-06-19T00:00:00.000Z'),
+      toMs: Date.parse('2026-06-20T00:00:00.000Z') - 1,
+    })
+  })
+
+  it('thisYear runs from Jan 1 UTC to now', () => {
+    expect(resolveRange({ key: 'thisYear' }, NOW)).toEqual({
+      fromMs: Date.parse('2026-01-01T00:00:00.000Z'),
+      toMs: NOW,
+    })
+  })
+
+  it('lastYear is the whole previous calendar year (UTC)', () => {
+    expect(resolveRange({ key: 'lastYear' }, NOW)).toEqual({
+      fromMs: Date.parse('2025-01-01T00:00:00.000Z'),
+      toMs: Date.parse('2026-01-01T00:00:00.000Z') - 1,
+    })
+  })
+
+  it('sinceLastCharge runs from the last charge to now, or all-time when none', () => {
+    const last = Date.parse('2026-06-18T08:00:00Z')
+    expect(resolveRange({ key: 'sinceLastCharge' }, NOW, last)).toEqual({ fromMs: last, toMs: NOW })
+    expect(resolveRange({ key: 'sinceLastCharge' }, NOW, null)).toEqual(ALL_TIME)
+  })
+
+  it('all is unbounded', () => {
     expect(resolveRange({ key: 'all' }, NOW)).toEqual(ALL_TIME)
   })
 
-  it('custom resolves to UTC day bounds (start-of-day .. end-of-day)', () => {
-    const r = resolveRange({ key: 'custom', customFrom: '2026-06-01', customTo: '2026-06-10' }, NOW)
+  it('custom resolves to UTC day bounds and orders a reversed pair', () => {
+    const r = resolveRange({ key: 'custom', customFrom: '2026-06-10', customTo: '2026-06-01' }, NOW)
     expect(r.fromMs).toBe(Date.parse('2026-06-01T00:00:00.000Z'))
     expect(r.toMs).toBe(Date.parse('2026-06-10T23:59:59.999Z'))
   })
 
-  it('custom spanning more than 60 days is clamped (start pulled forward)', () => {
+  it('custom allows spans wider than 60 days (no client cap)', () => {
     const r = resolveRange({ key: 'custom', customFrom: '2026-01-01', customTo: '2026-06-10' }, NOW)
-    const span = (r.toMs! - r.fromMs!) / DAY
-    // end-of-day .. start-of-day ⇒ ~MAX_CUSTOM_DAYS + ~1 day of intra-day slack
-    expect(span).toBeGreaterThan(MAX_CUSTOM_DAYS)
-    expect(span).toBeLessThan(MAX_CUSTOM_DAYS + 1)
+    expect((r.toMs! - r.fromMs!) / DAY).toBeGreaterThan(150)
   })
 
   it('incomplete custom falls back to all-time', () => {
     expect(resolveRange({ key: 'custom', customFrom: '2026-06-01' }, NOW)).toEqual(ALL_TIME)
-    expect(resolveRange({ key: 'custom' }, NOW)).toEqual(ALL_TIME)
   })
 })
 
 describe('clampCustom', () => {
-  it('orders a reversed pair', () => {
+  it('orders a reversed pair without capping the span', () => {
     expect(clampCustom('2026-06-10', '2026-06-01')).toEqual({ from: '2026-06-01', to: '2026-06-10' })
-  })
-
-  it('caps the span at MAX_CUSTOM_DAYS', () => {
-    const { from, to } = clampCustom('2026-01-01', '2026-06-10')
-    const span = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY
-    expect(span).toBe(MAX_CUSTOM_DAYS)
-    expect(to).toBe('2026-06-10')
+    expect(clampCustom('2026-01-01', '2026-12-31')).toEqual({ from: '2026-01-01', to: '2026-12-31' })
   })
 
   it('leaves unparseable input untouched', () => {
@@ -66,19 +87,20 @@ describe('clampCustom', () => {
   })
 })
 
-describe('inResolvedRange', () => {
+describe('inRangeMs / inResolvedRange', () => {
   const r = { fromMs: Date.parse('2026-06-01T00:00:00Z'), toMs: Date.parse('2026-06-10T23:59:59.999Z') }
 
   it('includes the bounds and excludes outside', () => {
     expect(inResolvedRange('2026-06-01T00:00:00Z', r)).toBe(true)
-    expect(inResolvedRange('2026-06-05T08:00:00Z', r)).toBe(true)
     expect(inResolvedRange('2026-05-31T23:59:59Z', r)).toBe(false)
     expect(inResolvedRange('2026-06-11T00:00:00Z', r)).toBe(false)
   })
 
-  it('all-time admits everything, and bad timestamps are excluded when bounded', () => {
+  it('all-time admits everything; bad timestamps excluded when bounded', () => {
     expect(inResolvedRange('not-a-date', ALL_TIME)).toBe(true)
     expect(inResolvedRange('not-a-date', r)).toBe(false)
+    expect(inRangeMs(NaN, r)).toBe(false)
+    expect(inRangeMs(Date.parse('2026-06-05T00:00:00Z'), r)).toBe(true)
   })
 })
 
@@ -99,33 +121,29 @@ describe('filterByRange', () => {
   })
 })
 
-describe('clampServerWindow', () => {
-  it('passes a within-cap window through unchanged', () => {
-    const w = clampServerWindow('2026-06-01T00:00:00.000Z', '2026-06-10T00:00:00.000Z')
-    expect(w).toEqual({ from: '2026-06-01T00:00:00.000Z', to: '2026-06-10T00:00:00.000Z' })
+describe('lastChargeMsOf', () => {
+  it('picks the latest ended_at, falling back to started_at', () => {
+    const sessions = [
+      { started_at: '2026-06-01T00:00:00Z', ended_at: '2026-06-01T01:00:00Z' },
+      { started_at: '2026-06-18T07:00:00Z', ended_at: null },
+      { started_at: '2026-06-10T00:00:00Z', ended_at: '2026-06-10T02:00:00Z' },
+    ]
+    expect(lastChargeMsOf(sessions)).toBe(Date.parse('2026-06-18T07:00:00Z'))
   })
 
-  it('caps an over-wide window by pulling `from` forward (defeats unbounded-scan abuse)', () => {
-    const w = clampServerWindow('2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')!
-    const span = (Date.parse(w.to) - Date.parse(w.from)) / DAY
-    expect(span).toBe(MAX_CUSTOM_DAYS)
-    expect(w.to).toBe('2100-01-01T00:00:00.000Z') // end preserved, start clamped
-  })
-
-  it('missing `to` caps the span to MAX_CUSTOM_DAYS forward of `from`', () => {
-    const w = clampServerWindow('2026-06-01T00:00:00.000Z', null)!
-    expect((Date.parse(w.to) - Date.parse(w.from)) / DAY).toBe(MAX_CUSTOM_DAYS)
-  })
-
-  it('returns null for an unparseable `from` (caller falls back to all-time)', () => {
-    expect(clampServerWindow('garbage', '2026-06-10T00:00:00.000Z')).toBeNull()
+  it('returns null for no sessions', () => {
+    expect(lastChargeMsOf([])).toBeNull()
   })
 })
 
 describe('rangeLabel / rangeToIso / toYmdUtc', () => {
   it('labels each key', () => {
+    expect(rangeLabel({ key: 'today' })).toBe('Today')
+    expect(rangeLabel({ key: 'yesterday' })).toBe('Yesterday')
     expect(rangeLabel({ key: '7d' })).toBe('Last 7 days')
-    expect(rangeLabel({ key: '30d' })).toBe('Last 30 days')
+    expect(rangeLabel({ key: 'thisYear' })).toBe('This year')
+    expect(rangeLabel({ key: 'lastYear' })).toBe('Last year')
+    expect(rangeLabel({ key: 'sinceLastCharge' })).toBe('Since last charge')
     expect(rangeLabel({ key: 'all' })).toBe('All time')
     expect(rangeLabel({ key: 'custom', customFrom: '2026-06-01', customTo: '2026-06-10' })).toBe('Jun 1 – Jun 10')
   })

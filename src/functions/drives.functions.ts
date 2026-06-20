@@ -7,7 +7,7 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-o
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { withDb, type Db } from '../server/db'
-import { vinFilter, type VinFilter } from './vin'
+import { rangeVinFilter, vinFilter, type VinFilter } from './vin'
 import { address, driveSession, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
 import { groupRoutes, type LatLng, type RouteWindow } from '../lib/map-vm'
@@ -251,15 +251,18 @@ export interface DriveRoutesMap {
  */
 export const getDriveRoutes = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .validator(vinFilter)
+  .validator(rangeVinFilter)
   .handler(async ({ data, context }): Promise<DriveRoutesMap> =>
     withDb(async (db) => {
       const userId = context.userId
       const vin = data?.vin
+      const from = data?.from ?? null
+      const to = data?.to ?? null
 
-      // All closed drives (open/in-progress have no end → skip), oldest-first, with
-      // any cached road-matched geometry. A road-matched drive renders straight from
-      // that stored line; the rest fall back to the raw straight-line breadcrumb.
+      // All closed drives (open/in-progress have no end → skip) within the selected
+      // window, oldest-first, with any cached road-matched geometry. A road-matched
+      // drive renders straight from that stored line; the rest fall back to the raw
+      // straight-line breadcrumb.
       const driveRows = await db
         .select({
           started_at: driveSession.started_at,
@@ -273,6 +276,8 @@ export const getDriveRoutes = createServerFn({ method: 'GET' })
             eq(driveSession.user_id, userId),
             vin ? eq(driveSession.vin, vin) : undefined,
             isNotNull(driveSession.ended_at),
+            from ? gte(driveSession.started_at, from) : undefined,
+            to ? lte(driveSession.started_at, to) : undefined,
           ),
         )
         .orderBy(asc(driveSession.started_at))

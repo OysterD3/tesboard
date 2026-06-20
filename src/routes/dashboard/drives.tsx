@@ -1,7 +1,8 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { BatteryGlyph, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
+import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
 import { VirtualList } from '../../components/dashboard/VirtualList'
@@ -9,8 +10,9 @@ import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
-import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
-import { groupByMonth, monthOptions } from '../../lib/month-group'
+import { MonthHeader } from '../../components/dashboard/MonthFilter'
+import { groupByMonth } from '../../lib/month-group'
+import { filterByRange, lastChargeMsOf, resolveRange } from '../../lib/range-filter'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives')({
@@ -23,30 +25,24 @@ const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
 
 function DrivesPage() {
-  const { drives } = dashApi.useLoaderData()
-  const { units: u, theme } = useDash()
+  const { drives, charging, now } = dashApi.useLoaderData()
+  const { units: u, theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
-  const all = buildDrives(drives, useDisplayTz())
-  const months = monthOptions(all)
-  const [month, setMonth] = useState('all')
-  const visible = month === 'all' ? all : all.filter((d) => d.monthKey === month)
-  const rows = groupByMonth(visible, (d) => d.id)
+  const tz = useDisplayTz()
+
+  const nowMs = Date.parse(now)
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const resolved = useMemo(() => resolveRange(range, nowMs, lastChargeMs), [range, nowMs, lastChargeMs])
+  const windowed = useMemo(
+    () => buildDrives({ ...drives, drives: filterByRange(drives.drives, resolved) }, tz),
+    [drives, resolved, tz],
+  )
+  const rows = groupByMonth(windowed, (d) => d.id)
+  const noneAtAll = drives.drives.length === 0
 
   function open(id: string) {
     navigate({ to: '/dashboard/drives/$driveId', params: { driveId: id }, search: (prev) => prev })
-  }
-
-  if (all.length === 0) {
-    return (
-      <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <ViewTitle>Drives</ViewTitle>
-        <EmptyCard
-          title="No drives recorded yet"
-          body="Drives are built from polled snapshots (the Fleet API has no trip endpoint), so they start accruing once the poller is running and you take a drive."
-        />
-      </div>
-    )
   }
 
   return (
@@ -56,17 +52,28 @@ function DrivesPage() {
         <SectionTabs section="drives" value="history" accent={COLOR} isDark={isDark} />
       </div>
 
-      <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
+      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} lastChargeMs={lastChargeMs} />
 
-      <VirtualList
-        items={rows}
-        getKey={(r) => r.key}
-        estimateRowHeight={148}
-        renderRow={(r) => {
-          if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
-          return <DriveCard d={r.item} u={u} onClick={() => open(r.item.id)} />
-        }}
-      />
+      {rows.length === 0 ? (
+        <EmptyCard
+          title={noneAtAll ? 'No drives recorded yet' : 'No drives in this range'}
+          body={
+            noneAtAll
+              ? 'Drives are built from polled snapshots (the Fleet API has no trip endpoint), so they start accruing once the poller is running and you take a drive.'
+              : 'Try a wider date range to see more drives.'
+          }
+        />
+      ) : (
+        <VirtualList
+          items={rows}
+          getKey={(r) => r.key}
+          estimateRowHeight={148}
+          renderRow={(r) => {
+            if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
+            return <DriveCard d={r.item} u={u} onClick={() => open(r.item.id)} />
+          }}
+        />
+      )}
     </div>
   )
 }

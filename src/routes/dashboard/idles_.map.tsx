@@ -1,11 +1,12 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { SectionTabs } from '../../components/dashboard/SectionTabs'
+import { MapFilterControls } from '../../components/dashboard/MapFilterControls'
 import { LifetimeMap, MapMessage, MapOverlay, type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
 import { mergeNearbyPoints, type LatLng } from '../../lib/map-vm'
 import { buildIdles } from '../../lib/idles-vm'
+import { inRangeMs, lastChargeMsOf, resolveRange } from '../../lib/range-filter'
 
 export const Route = createFileRoute('/dashboard/idles_/map')({
   component: IdlesMapPage,
@@ -23,12 +24,18 @@ const COLOR = SECTION.idles
  * the already-loaded drives, so there's no extra fetch.
  */
 function IdlesMapPage() {
-  const { drives } = dashApi.useLoaderData()
-  const { theme } = useDash()
+  const { drives, charging, now } = dashApi.useLoaderData()
+  const { theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
 
-  const idles = useMemo(() => buildIdles(drives.drives), [drives])
+  const nowMs = Date.parse(now)
+  const lastChargeMs = useMemo(() => lastChargeMsOf(charging.sessions), [charging.sessions])
+  const resolved = useMemo(() => resolveRange(range, nowMs, lastChargeMs), [range, nowMs, lastChargeMs])
+  const idles = useMemo(
+    () => buildIdles(drives.drives).filter((i) => inRangeMs(i.startMs, resolved)),
+    [drives.drives, resolved],
+  )
   const pins = useMemo<MapPoint[]>(() => {
     const pts: LatLng[] = idles
       .filter((i) => i.lat != null && i.lng != null)
@@ -42,7 +49,17 @@ function IdlesMapPage() {
   return (
     <MapOverlay
       onBack={toHistory}
-      topLeft={<SectionTabs section="idles" value="map" accent={COLOR} isDark={isDark} />}
+      topLeft={
+        <MapFilterControls
+          section="idles"
+          range={range}
+          onRangeChange={setRange}
+          accent={COLOR}
+          isDark={isDark}
+          nowMs={nowMs}
+          lastChargeMs={lastChargeMs}
+        />
+      }
       caption={
         hasPins
           ? `${idles.length} idle${idles.length === 1 ? '' : 's'} · ${pins.length} parked place${pins.length === 1 ? '' : 's'}`

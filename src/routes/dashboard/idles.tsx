@@ -1,15 +1,16 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
 import { BatteryGlyph, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
+import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import type { IdleVM } from '../../lib/idles-vm'
 import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION, hexToRgba } from '../../components/dashboard/theme'
 import { buildIdles, fmtIdleDuration } from '../../lib/idles-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
-import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
-import { groupByMonth, monthOptions } from '../../lib/month-group'
+import { MonthHeader } from '../../components/dashboard/MonthFilter'
+import { groupByMonth } from '../../lib/month-group'
+import { inRangeMs, lastChargeMsOf, resolveRange } from '../../lib/range-filter'
 
 export const Route = createFileRoute('/dashboard/idles')({
   component: IdlesPage,
@@ -21,36 +22,27 @@ const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.idles
 
 function IdlesPage() {
-  const { drives, overview, activeVin } = dashApi.useLoaderData()
-  const { theme } = useDash()
+  const { drives, overview, activeVin, charging, now } = dashApi.useLoaderData()
+  const { theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
 
   const vw = overview.vehicles.find((v) => v.vehicle.vin === activeVin) ?? overview.vehicles[0]
-  const all = buildIdles(drives.drives, {
+  const allIdles = buildIdles(drives.drives, {
     tz: useDisplayTz(),
     effWhPerMi: vw?.vehicle.efficiency_wh_per_mi ?? null,
     packKwh: vw?.vehicle.pack_kwh ?? null,
   })
-  const months = monthOptions(all)
-  const [month, setMonth] = useState('all')
-  const visible = month === 'all' ? all : all.filter((d) => d.monthKey === month)
-  const rows = groupByMonth(visible, (d) => d.id)
+
+  const nowMs = Date.parse(now)
+  const lastChargeMs = lastChargeMsOf(charging.sessions)
+  const resolved = resolveRange(range, nowMs, lastChargeMs)
+  const windowed = allIdles.filter((d) => inRangeMs(d.startMs, resolved))
+  const rows = groupByMonth(windowed, (d) => d.id)
+  const noneAtAll = allIdles.length === 0
 
   function open(id: string) {
     navigate({ to: '/dashboard/idles/$idleId', params: { idleId: id }, search: (prev) => prev })
-  }
-
-  if (all.length === 0) {
-    return (
-      <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <ViewTitle>Idles</ViewTitle>
-        <EmptyCard
-          title="No idle periods yet"
-          body="Idles are the parked gaps between two drives. They appear once the poller has recorded at least two drives for this car."
-        />
-      </div>
-    )
   }
 
   return (
@@ -60,17 +52,28 @@ function IdlesPage() {
         <SectionTabs section="idles" value="history" accent={COLOR} isDark={isDark} />
       </div>
 
-      <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
+      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} lastChargeMs={lastChargeMs} />
 
-      <VirtualList
-        items={rows}
-        getKey={(r) => r.key}
-        estimateRowHeight={172}
-        renderRow={(r) => {
-          if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
-          return <IdleCard d={r.item} isDark={isDark} onClick={() => open(r.item.id)} />
-        }}
-      />
+      {rows.length === 0 ? (
+        <EmptyCard
+          title={noneAtAll ? 'No idle periods yet' : 'No idles in this range'}
+          body={
+            noneAtAll
+              ? 'Idles are the parked gaps between two drives. They appear once the poller has recorded at least two drives for this car.'
+              : 'Try a wider date range to see more idles.'
+          }
+        />
+      ) : (
+        <VirtualList
+          items={rows}
+          getKey={(r) => r.key}
+          estimateRowHeight={172}
+          renderRow={(r) => {
+            if (r.kind === 'header') return <MonthHeader label={r.label} count={r.count} />
+            return <IdleCard d={r.item} isDark={isDark} onClick={() => open(r.item.id)} />
+          }}
+        />
+      )}
     </div>
   )
 }
