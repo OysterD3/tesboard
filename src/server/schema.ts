@@ -263,6 +263,14 @@ export const driveSession = pgTable(
     end_geofence_id: bigint('end_geofence_id', { mode: 'number' }),
     import_source: text('import_source').notNull().default('live'),
     source_pk: bigint('source_pk', { mode: 'number' }),
+    // Mapbox map-matched route geometry — the drive's GPS fixes snapped to roads,
+    // stored as [lat,lng] pairs. Filled on-demand by backfillRouteMatch (off the
+    // cron). route_match_status is null until attempted, then 'matched' | 'low' |
+    // 'failed' | 'insufficient'; the map uses route_geometry when present and falls
+    // back to the raw straight-line breadcrumb otherwise.
+    route_geometry: jsonb('route_geometry').$type<[number, number][]>(),
+    route_match_status: text('route_match_status'),
+    route_matched_at: ts('route_matched_at'),
     created_at: ts('created_at').notNull().defaultNow(),
   },
   (t) => [

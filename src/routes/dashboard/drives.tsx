@@ -16,6 +16,7 @@ import { groupByMonth, monthOptions } from '../../lib/month-group'
 import { getDriveRoutes, type DriveRoutesMap } from '../../functions/drives.functions'
 import { backfillAddresses } from '../../functions/geocode.functions'
 import { backfillElevation } from '../../functions/elevation.functions'
+import { backfillRouteMatch } from '../../functions/routematch.functions'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives')({
@@ -111,29 +112,36 @@ function DrivesPage() {
       </div>
 
       {view === 'map' ? (
-        <Card radius={22} style={{ padding: 14 }}>
-          {routesMap && routesMap.routes.length > 0 ? (
-            <>
-              <LifetimeMap
-                routes={routesMap.routes}
-                points={drivePins}
-                routeColor={COLOR}
-                markerColor={COLOR}
-                isDark={isDark}
-                height={540}
-              />
-              <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-                {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · {drivePins.length} start/end place{drivePins.length === 1 ? '' : 's'} · sampled at the poll cadence (not road-matched)
-              </div>
-            </>
-          ) : (
-            <div style={{ height: 540, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
-                {routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}
-              </span>
+        <>
+          {routesMap && routesMap.routes.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <SnapToRoadsButton isDark={isDark} onDone={() => setRoutesMap(null)} />
             </div>
           )}
-        </Card>
+          <Card radius={22} style={{ padding: 14 }}>
+            {routesMap && routesMap.routes.length > 0 ? (
+              <>
+                <LifetimeMap
+                  routes={routesMap.routes}
+                  points={drivePins}
+                  routeColor={COLOR}
+                  markerColor={COLOR}
+                  isDark={isDark}
+                  height={540}
+                />
+                <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
+                  {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · {drivePins.length} start/end place{drivePins.length === 1 ? '' : 's'} · road-matched where snapped, else sampled at the poll cadence
+                </div>
+              </>
+            ) : (
+              <div style={{ height: 540, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
+                  {routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}
+                </span>
+              </div>
+            )}
+          </Card>
+        </>
       ) : (
         <>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -378,6 +386,83 @@ function ResolveLocationsButton({ isDark }: { isDark: boolean }) {
       onClick={resolve}
       disabled={st.running}
       title="Look up street names for drives/charges that only show a time"
+      style={{
+        flex: 'none',
+        cursor: st.running ? 'default' : 'pointer',
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: '-0.01em',
+        color: st.running ? TD : COLOR,
+        background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
+        border: `1px solid ${st.running ? 'var(--border,rgba(0,0,0,0.08))' : COLOR}`,
+        borderRadius: 30,
+        padding: '7px 14px',
+        whiteSpace: 'nowrap',
+        opacity: st.running ? 0.8 : 1,
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+/**
+ * Road-match backfill trigger for the route map. Loops `backfillRouteMatch`
+ * (throttled server-side, a few drives per call) until every drive has been
+ * attempted, then `onDone()` re-fetches the route map so freshly road-matched
+ * drives redraw on roads. When the server reports Mapbox isn't configured the
+ * label nudges to set MAPBOX_TOKEN.
+ */
+function SnapToRoadsButton({ isDark, onDone }: { isDark: boolean; onDone: () => void }) {
+  const run = useServerFn(backfillRouteMatch)
+  const [st, setSt] = useState<{ running: boolean; matched: number; remaining: number | null; done: boolean; configured: boolean }>({
+    running: false,
+    matched: 0,
+    remaining: null,
+    done: false,
+    configured: true,
+  })
+
+  async function snap() {
+    if (st.running) return
+    setSt({ running: true, matched: 0, remaining: null, done: false, configured: true })
+    let matched = 0
+    let configured = true
+    try {
+      for (let i = 0; i < 200; i++) {
+        const r = await run()
+        if (!r.configured) {
+          configured = false
+          break
+        }
+        matched += r.matched
+        setSt({ running: true, matched, remaining: r.remaining, done: false, configured: true })
+        if (r.matched + r.failed === 0 || r.remaining === 0) break
+      }
+    } catch {
+      /* finalize below */
+    } finally {
+      onDone()
+      setSt((s) => ({ ...s, running: false, done: true, configured }))
+    }
+  }
+
+  const label = !st.configured
+    ? 'Set MAPBOX_TOKEN to snap'
+    : st.running
+      ? `Snapping… ${st.matched}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
+      : st.done
+        ? st.remaining
+          ? `Snapped ${st.matched} · ${st.remaining} left`
+          : `Snapped ${st.matched}`
+        : 'Snap to roads'
+
+  return (
+    <button
+      type="button"
+      onClick={snap}
+      disabled={st.running}
+      title="Road-match each drive's GPS to the street network via Mapbox (cached; needs MAPBOX_TOKEN)"
       style={{
         flex: 'none',
         cursor: st.running ? 'default' : 'pointer',

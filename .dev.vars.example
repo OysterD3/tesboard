@@ -55,6 +55,14 @@ TESLA_OAUTH_AUDIENCE=https://fleet-api.prd.na.vn.cloud.tesla.com
 SUPABASE_URL=https://YOUR_SUPABASE_REF.supabase.co
 SUPABASE_ANON_KEY=
 
+# --- Mapbox (secret, optional) ---
+# Access token for the Map Matching API, used by the drives map's "Snap to roads"
+# backfill to snap GPS breadcrumbs onto the road network. Optional: unset = the
+# feature is unavailable and routes stay as straight-line breadcrumbs. Create one
+# at https://account.mapbox.com/access-tokens (a default public "pk." token works;
+# scope/restrict it to the Map Matching API). In prod: `wrangler secret put MAPBOX_TOKEN`.
+MAPBOX_TOKEN=
+
 # --- Adaptive burst polling (optional) ---
 # "off" (default) = cron-only, exactly today's behaviour. "on" enables ~20s/30s
 # polling while driving/charging via the per-VIN VehiclePoller Durable Object.

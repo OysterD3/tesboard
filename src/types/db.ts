@@ -180,6 +180,9 @@ export interface DriveSession {
   end_geofence_id: number | null
   import_source: string
   source_pk: number | null
+  route_geometry: [number, number][] | null
+  route_match_status: string | null
+  route_matched_at: string | null
   created_at: string
 }
 

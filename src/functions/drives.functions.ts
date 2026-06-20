@@ -10,7 +10,8 @@ import { withDb, type Db } from '../server/db'
 import { vinFilter, type VinFilter } from './vin'
 import { address, driveSession, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
-import { groupRoutes, type LatLng } from '../lib/map-vm'
+import { groupRoutes, type LatLng, type RouteWindow } from '../lib/map-vm'
+import { downsampleSeries } from '../lib/drive-detail-vm'
 import type { DriveSession } from '../types/db'
 
 /** A drive row augmented with resolved start/end place names (geofence > address). */
@@ -256,9 +257,15 @@ export const getDriveRoutes = createServerFn({ method: 'GET' })
       const userId = context.userId
       const vin = data?.vin
 
-      // Closed drive windows (open/in-progress drives have no end → skip), oldest-first.
+      // All closed drives (open/in-progress have no end → skip), oldest-first, with
+      // any cached road-matched geometry. A road-matched drive renders straight from
+      // that stored line; the rest fall back to the raw straight-line breadcrumb.
       const driveRows = await db
-        .select({ started_at: driveSession.started_at, ended_at: driveSession.ended_at })
+        .select({
+          started_at: driveSession.started_at,
+          ended_at: driveSession.ended_at,
+          route_geometry: driveSession.route_geometry,
+        })
         .from(driveSession)
         .where(
           and(
@@ -268,21 +275,31 @@ export const getDriveRoutes = createServerFn({ method: 'GET' })
           ),
         )
         .orderBy(asc(driveSession.started_at))
-      const windows = driveRows
-        .filter((d): d is { started_at: string; ended_at: string } => d.ended_at != null)
-        .map((d) => ({ startMs: new Date(d.started_at).getTime(), endMs: new Date(d.ended_at).getTime() }))
 
-      // GPS fixes within the overall drive span. Burst polling makes drives dense
+      const matchedRoutes: LatLng[][] = []
+      const windows: RouteWindow[] = []
+      for (const d of driveRows) {
+        if (d.ended_at == null) continue
+        const geom = d.route_geometry
+        if (geom && geom.length >= 2) {
+          matchedRoutes.push(downsampleSeries(geom, 100))
+        } else {
+          windows.push({ startMs: new Date(d.started_at).getTime(), endMs: new Date(d.ended_at).getTime() })
+        }
+      }
+
+      // GPS fixes only for the UN-matched windows. Burst polling makes drives dense
       // (a fix every ~20-30s), so a lifetime map would otherwise pull tens of
       // thousands of rows into the Worker. Thin to ~1 fix / 2 min and return epoch
-      // ms straight from Postgres (no per-row Date parsing) — the Worker handles a
-      // few thousand rows, well within its limits, and the map stays plenty detailed
-      // at country scale. (DISTINCT ON keeps the earliest fix per 120 s bucket.)
-      const startIso = new Date(windows[0].startMs).toISOString()
-      const endIso = new Date(windows[windows.length - 1].endMs).toISOString()
-      const vinClause = vin ? sql`and ${vehicleSnapshot.vin} = ${vin}` : sql``
-      const thinned = windows.length
-        ? ((await db.execute(sql`
+      // ms straight from Postgres (DISTINCT ON keeps the earliest fix per 120s
+      // bucket). groupRoutes drops fixes outside these windows — including any inside
+      // an already-matched drive — so matched drives are never double-drawn.
+      let fallbackRoutes: LatLng[][] = []
+      if (windows.length) {
+        const startIso = new Date(windows[0].startMs).toISOString()
+        const endIso = new Date(windows[windows.length - 1].endMs).toISOString()
+        const vinClause = vin ? sql`and ${vehicleSnapshot.vin} = ${vin}` : sql``
+        const thinned = (await db.execute(sql`
             select distinct on (floor(extract(epoch from ${vehicleSnapshot.recorded_at}) / 120))
               ${vehicleSnapshot.latitude} as lat,
               ${vehicleSnapshot.longitude} as lng,
@@ -296,11 +313,12 @@ export const getDriveRoutes = createServerFn({ method: 'GET' })
               ${vinClause}
             order by floor(extract(epoch from ${vehicleSnapshot.recorded_at}) / 120), ${vehicleSnapshot.recorded_at}
             limit 20000
-          `)) as unknown as Array<{ lat: number; lng: number; at_ms: number }>)
-        : []
+          `)) as unknown as Array<{ lat: number; lng: number; at_ms: number }>
+        const snaps = thinned.map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), atMs: Number(r.at_ms) }))
+        fallbackRoutes = groupRoutes(snaps, windows, { maxPerPath: 60, maxPaths: 1500 })
+      }
 
-      const snaps = thinned.map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), atMs: Number(r.at_ms) }))
-      const routes = groupRoutes(snaps, windows, { maxPerPath: 60, maxPaths: 1500 })
+      const routes = [...matchedRoutes, ...fallbackRoutes]
       return { routes, driveCount: routes.length }
     }),
   )

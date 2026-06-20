@@ -64,6 +64,10 @@ export const serverEnv = {
   // Direct Postgres access for Drizzle (postgres-js over the Supabase pooler).
   // The connection string carries the DB password — keep it server-only.
   database: () => ({ url: required('DATABASE_URL') }),
+  // Mapbox access token for the Map Matching API (road-snapping drive routes).
+  // Optional: null when unset, so the route-match backfill is simply unavailable
+  // and the map keeps drawing raw straight-line breadcrumbs. Server-only secret.
+  mapboxToken: (): string | null => process.env.MAPBOX_TOKEN || null,
   // Adaptive burst polling (the per-VIN Durable Object). OFF by default: when
   // disabled the cron poller behaves exactly as it always has. Set BURST_POLL=on
   // (a wrangler var) to enable ~20s/30s polling while driving/charging.
