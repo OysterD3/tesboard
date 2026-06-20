@@ -1,13 +1,20 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
-import { BatteryGlyph, Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { useMemo, useState } from 'react'
+import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import { VirtualList } from '../../components/dashboard/VirtualList'
+import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildChargingReview, buildSessions, type SessionVM } from '../../lib/dashboard-vm'
+import { buildChargeMarkers } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
+
+const VIEW_OPTIONS = [
+  { label: 'History', value: 'history' as const },
+  { label: 'Map', value: 'map' as const },
+]
 
 export const Route = createFileRoute('/dashboard/charging')({
   component: ChargingPage,
@@ -43,6 +50,9 @@ function ChargingPage() {
   const [month, setMonth] = useState('all')
   const visible = month === 'all' ? all : all.filter((s) => s.monthKey === month)
   const rows = groupByMonth(visible, (s) => s.id)
+  const [view, setView] = useState<'history' | 'map'>('history')
+  const markers = useMemo(() => buildChargeMarkers(charging.sessions), [charging.sessions])
+  const totalCharges = markers.reduce((n, m) => n + m.count, 0)
 
   function open(id: string) {
     navigate({ to: '/dashboard/charging/$chargeId', params: { chargeId: id }, search: (prev) => prev })
@@ -62,8 +72,24 @@ function ChargingPage() {
 
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <ViewTitle>Charging</ViewTitle>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <ViewTitle>Charging</ViewTitle>
+        <Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />
+      </div>
 
+      {view === 'map' ? (
+        markers.length > 0 ? (
+          <Card radius={22} style={{ padding: 14 }}>
+            <LifetimeMap markers={markers} routeColor={COLOR} markerColor={COLOR} isDark={isDark} height={540} />
+            <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
+              {markers.length} location{markers.length === 1 ? '' : 's'} · {totalCharges} session{totalCharges === 1 ? '' : 's'}
+            </div>
+          </Card>
+        ) : (
+          <EmptyCard title="No charge locations yet" body="Charge sessions need a recorded location to map. They’ll appear here once the poller (or an import) captures where you charged." />
+        )
+      ) : (
+        <>
       {review.hasData && (
         <Card radius={22} style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -123,6 +149,8 @@ function ChargingPage() {
           return <ChargeCard c={r.item} isDark={isDark} onClick={() => open(r.item.id)} />
         }}
       />
+        </>
+      )}
     </div>
   )
 }

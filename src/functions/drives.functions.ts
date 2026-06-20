@@ -10,6 +10,7 @@ import { withDb, type Db } from '../server/db'
 import { vinFilter, type VinFilter } from './vin'
 import { address, driveSession, geofence, vehicleSnapshot } from '../server/schema'
 import { addressLabel } from '../server/geo'
+import { groupRoutes, type LatLng } from '../lib/map-vm'
 import type { DriveSession } from '../types/db'
 
 /** A drive row augmented with resolved start/end place names (geofence > address). */
@@ -232,3 +233,70 @@ export const getVisitedMap = createServerFn({ method: 'GET' })
     }
     return { points, scanned: rows.length }
   }))
+
+export interface DriveRoutesMap {
+  /** One ordered [lat,lng] polyline per drive (downsampled at the poll cadence). */
+  routes: LatLng[][]
+  /** How many drive paths were drawn. */
+  driveCount: number
+}
+
+/**
+ * Lifetime drive map: every drive rendered as its own GPS polyline. The Fleet API
+ * has no path endpoint, so this groups stored `vehicle_snapshot` fixes into each
+ * drive's [started_at, ended_at] window (parked fixes between drives are dropped so
+ * the map shows trips, not teleport lines). Coarse at the 2-min poll cadence, not
+ * road-matched. Scoped to the user's rows; bounded by a snapshot scan cap.
+ */
+export const getDriveRoutes = createServerFn({ method: 'GET' })
+  .middleware([authMiddleware])
+  .validator(vinFilter)
+  .handler(async ({ data, context }): Promise<DriveRoutesMap> =>
+    withDb(async (db) => {
+      const userId = context.userId
+      const vin = data?.vin
+
+      // Closed drive windows (open/in-progress drives have no end → skip), oldest-first.
+      const driveRows = await db
+        .select({ started_at: driveSession.started_at, ended_at: driveSession.ended_at })
+        .from(driveSession)
+        .where(
+          and(
+            eq(driveSession.user_id, userId),
+            vin ? eq(driveSession.vin, vin) : undefined,
+            isNotNull(driveSession.ended_at),
+          ),
+        )
+        .orderBy(asc(driveSession.started_at))
+      const windows = driveRows
+        .filter((d): d is { started_at: string; ended_at: string } => d.ended_at != null)
+        .map((d) => ({ startMs: new Date(d.started_at).getTime(), endMs: new Date(d.ended_at).getTime() }))
+
+      // GPS fixes within the overall drive span, oldest-first, bounded.
+      const snapRows = windows.length
+        ? await db
+            .select({ lat: vehicleSnapshot.latitude, lng: vehicleSnapshot.longitude, at: vehicleSnapshot.recorded_at })
+            .from(vehicleSnapshot)
+            .where(
+              and(
+                eq(vehicleSnapshot.user_id, userId),
+                vin ? eq(vehicleSnapshot.vin, vin) : undefined,
+                isNotNull(vehicleSnapshot.latitude),
+                isNotNull(vehicleSnapshot.longitude),
+                gte(vehicleSnapshot.recorded_at, new Date(windows[0].startMs).toISOString()),
+                lte(vehicleSnapshot.recorded_at, new Date(windows[windows.length - 1].endMs).toISOString()),
+              ),
+            )
+            .orderBy(asc(vehicleSnapshot.recorded_at))
+            .limit(80_000)
+        : []
+
+      const snaps = snapRows.map((r) => ({
+        lat: r.lat as number,
+        lng: r.lng as number,
+        atMs: new Date(r.at).getTime(),
+      }))
+      const routes = groupRoutes(snaps, windows, { maxPerPath: 60, maxPaths: 1500 })
+      return { routes, driveCount: routes.length }
+    }),
+  )

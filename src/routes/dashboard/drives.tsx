@@ -1,18 +1,19 @@
 import { createFileRoute, getRouteApi, useNavigate, useRouter } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { BatteryGlyph, Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
 import { VirtualList } from '../../components/dashboard/VirtualList'
-import { LeafletMap } from '../../components/dashboard/LeafletMap'
+import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
+import { buildChargeMarkers } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
-import { getVisitedMap } from '../../functions/drives.functions'
+import { getDriveRoutes, type DriveRoutesMap } from '../../functions/drives.functions'
 import { backfillAddresses } from '../../functions/geocode.functions'
 import { backfillElevation } from '../../functions/elevation.functions'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
@@ -26,8 +27,13 @@ const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
 
+const VIEW_OPTIONS = [
+  { label: 'History', value: 'history' as const },
+  { label: 'Map', value: 'map' as const },
+]
+
 function DrivesPage() {
-  const { drives, activeVin } = dashApi.useLoaderData()
+  const { drives, charging, activeVin } = dashApi.useLoaderData()
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
@@ -36,36 +42,37 @@ function DrivesPage() {
   const [month, setMonth] = useState('all')
   const visible = month === 'all' ? all : all.filter((d) => d.monthKey === month)
   const rows = groupByMonth(visible, (d) => d.id)
+  const [view, setView] = useState<'history' | 'map'>('history')
 
-  // Lifetime "visited" map — everywhere the car has been. Lazy-loaded the first
-  // time it's expanded (and re-fetched if the active car changes).
-  const [showMap, setShowMap] = useState(false)
-  const fetchVisited = useServerFn(getVisitedMap)
-  const [visited, setVisited] = useState<{ points: [number, number][]; scanned: number } | null>(null)
-  const [visitedLoading, setVisitedLoading] = useState(false)
+  // Lifetime route map — every drive as its own GPS polyline. Lazy-loaded the
+  // first time the Map tab is opened (and re-fetched if the active car changes).
+  const fetchRoutes = useServerFn(getDriveRoutes)
+  const [routesMap, setRoutesMap] = useState<DriveRoutesMap | null>(null)
+  const [routesLoading, setRoutesLoading] = useState(false)
+  const chargeMarkers = useMemo(() => buildChargeMarkers(charging.sessions), [charging.sessions])
 
   useEffect(() => {
-    if (!showMap || visited) return
+    if (view !== 'map' || routesMap) return
     let cancelled = false
-    setVisitedLoading(true)
-    fetchVisited({ data: { vin: activeVin ?? undefined } })
+    setRoutesLoading(true)
+    fetchRoutes({ data: { vin: activeVin ?? undefined } })
       .then((r) => {
-        if (!cancelled) setVisited(r)
+        if (!cancelled) setRoutesMap(r)
       })
       .catch(() => {
-        if (!cancelled) setVisited({ points: [], scanned: 0 })
+        if (!cancelled) setRoutesMap({ routes: [], driveCount: 0 })
       })
       .finally(() => {
-        if (!cancelled) setVisitedLoading(false)
+        if (!cancelled) setRoutesLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [showMap, visited, fetchVisited, activeVin])
+  }, [view, routesMap, fetchRoutes, activeVin])
 
-  // A car switch invalidates a cached lifetime map.
+  // A car switch invalidates a cached route map.
   useEffect(() => {
-    setVisited(null)
+    setRoutesMap(null)
   }, [activeVin])
 
   function open(id: string) {
@@ -88,58 +95,33 @@ function DrivesPage() {
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <ViewTitle>Drives</ViewTitle>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <FillElevationButton isDark={isDark} />
-          <ResolveLocationsButton isDark={isDark} />
-        </div>
+        <Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />
       </div>
 
-      <button
-        type="button"
-        onClick={() => setShowMap((s) => !s)}
-        style={{
-          alignSelf: 'flex-start',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 7,
-          fontSize: 12,
-          fontWeight: 600,
-          letterSpacing: '-0.01em',
-          color: showMap ? COLOR : TD,
-          background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--track,#f0f0f3)',
-          border: 'none',
-          borderRadius: 30,
-          padding: '7px 14px',
-          cursor: 'pointer',
-        }}
-      >
-        <Icon d={ICON.pin} size={15} color={showMap ? COLOR : TD} />
-        {showMap ? 'Hide lifetime map' : 'Lifetime map'}
-      </button>
-
-      {showMap && (
+      {view === 'map' ? (
         <Card radius={22} style={{ padding: 14 }}>
-          <div style={{ position: 'relative' }}>
-            {visited && visited.points.length > 0 ? (
-              <LeafletMap points={visited.points} color={COLOR} isDark={isDark} mode="scatter" height={260} />
-            ) : (
-              <div style={{ height: 260, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
-                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
-                  {visitedLoading ? 'Building lifetime map…' : 'No GPS points recorded yet.'}
-                </span>
+          {routesMap && (routesMap.routes.length > 0 || chargeMarkers.length > 0) ? (
+            <>
+              <LifetimeMap routes={routesMap.routes} markers={chargeMarkers} routeColor={COLOR} markerColor={SECTION.charging} isDark={isDark} height={540} />
+              <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
+                {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'}
+                {chargeMarkers.length > 0 ? ` · ${chargeMarkers.length} charge location${chargeMarkers.length === 1 ? '' : 's'}` : ''} · sampled at the poll cadence (not road-matched)
               </div>
-            )}
-            <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 500, pointerEvents: 'none', fontSize: 11, fontWeight: 600, color: TX, background: 'var(--card,#fff)', padding: '6px 11px', borderRadius: 20, border: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
-              Everywhere you’ve been
-            </div>
-          </div>
-          {visited && visited.points.length > 0 && (
-            <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-              {visited.points.length.toLocaleString()} places · sampled at the poll cadence (not road-matched)
+            </>
+          ) : (
+            <div style={{ height: 540, borderRadius: 16, border: '1px solid var(--border,rgba(0,0,0,0.07))', background: 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 20 }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
+                {routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}
+              </span>
             </div>
           )}
         </Card>
-      )}
+      ) : (
+        <>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <FillElevationButton isDark={isDark} />
+        <ResolveLocationsButton isDark={isDark} />
+      </div>
 
       <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
 
@@ -152,6 +134,8 @@ function DrivesPage() {
           return <DriveCard d={r.item} u={u} onClick={() => open(r.item.id)} />
         }}
       />
+        </>
+      )}
     </div>
   )
 }
