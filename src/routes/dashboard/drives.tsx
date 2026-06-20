@@ -9,6 +9,7 @@ import { LifetimeMap, type MapPoint } from '../../components/dashboard/LifetimeM
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
+import { mergeNearbyPoints } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
@@ -25,9 +26,6 @@ const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
-// Drive endpoint pins, mirroring the From→To cards: muted "from", accent "to".
-const START_PIN = '#86868b'
-const END_PIN = COLOR
 
 const VIEW_OPTIONS = [
   { label: 'History', value: 'history' as const },
@@ -52,20 +50,17 @@ function DrivesPage() {
   const [routesMap, setRoutesMap] = useState<DriveRoutesMap | null>(null)
   const [routesLoading, setRoutesLoading] = useState(false)
 
-  // A muted start pin + an accent end pin per route (first/last GPS fix). They
-  // cluster like the charge pins, so repeated origins/destinations collapse into
-  // one numbered bubble; tapping zooms in.
+  // Drive start/end pins. Most routes share the same driveway / destination, so
+  // the raw endpoints are merged by proximity (150m, same as the charge map) into
+  // one pin per distinct place instead of hundreds of stacked dots; tapping zooms in.
   const drivePins = useMemo<MapPoint[]>(() => {
     if (!routesMap) return []
-    const pins: MapPoint[] = []
+    const endpoints: [number, number][] = []
     for (const r of routesMap.routes) {
       if (r.length === 0) continue
-      const s = r[0]
-      const e = r[r.length - 1]
-      pins.push({ lat: s[0], lng: s[1], color: START_PIN })
-      pins.push({ lat: e[0], lng: e[1], color: END_PIN })
+      endpoints.push(r[0], r[r.length - 1])
     }
-    return pins
+    return mergeNearbyPoints(endpoints).map((p) => ({ lat: p.lat, lng: p.lng }))
   }, [routesMap])
 
   useEffect(() => {
@@ -127,12 +122,8 @@ function DrivesPage() {
                 isDark={isDark}
                 height={540}
               />
-              <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <span>{routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · sampled at the poll cadence (not road-matched)</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: START_PIN, border: '1px solid #fff' }} /> start
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: END_PIN, border: '1px solid #fff', marginLeft: 6 }} /> end
-                </span>
+              <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
+                {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · {drivePins.length} start/end place{drivePins.length === 1 ? '' : 's'} · sampled at the poll cadence (not road-matched)
               </div>
             </>
           ) : (

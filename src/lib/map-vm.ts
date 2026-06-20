@@ -153,3 +153,44 @@ export function clusterChargePoints(
     })
     .sort((a, b) => b.count - a.count)
 }
+
+/** A proximity-merged map point: nearby raw points collapsed to one centroid. */
+export interface MergedPoint {
+  lat: number
+  lng: number
+  /** How many raw points merged into this centroid. */
+  count: number
+}
+
+/**
+ * Merge raw lat/lng points within `radiusMeters` of each other into one centroid —
+ * the same greedy, running-mean pass clusterChargePoints uses, but for bare
+ * coordinates (e.g. drive start/end endpoints, where most routes share the same
+ * driveway / destination, so 600+ raw endpoints collapse to a handful of places).
+ * Output is sorted by `count` descending. Default radius matches the charge merge
+ * (150m) so a place reads the same on both maps.
+ */
+export function mergeNearbyPoints(points: LatLng[], radiusMeters = 150): MergedPoint[] {
+  const clusters: { sumLat: number; sumLng: number; lat: number; lng: number; n: number }[] = []
+  for (const [lat, lng] of points) {
+    let best: (typeof clusters)[number] | null = null
+    let bestD = Infinity
+    for (const c of clusters) {
+      const d = metersBetween(lat, lng, c.lat, c.lng)
+      if (d <= radiusMeters && d < bestD) {
+        best = c
+        bestD = d
+      }
+    }
+    if (best) {
+      best.sumLat += lat
+      best.sumLng += lng
+      best.n++
+      best.lat = best.sumLat / best.n
+      best.lng = best.sumLng / best.n
+    } else {
+      clusters.push({ sumLat: lat, sumLng: lng, lat, lng, n: 1 })
+    }
+  }
+  return clusters.map((c) => ({ lat: c.lat, lng: c.lng, count: c.n })).sort((a, b) => b.count - a.count)
+}

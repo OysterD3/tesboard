@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clusterChargePoints, groupRoutes, type RouteSnap, type RouteWindow } from './map-vm'
+import { clusterChargePoints, groupRoutes, mergeNearbyPoints, type RouteSnap, type RouteWindow } from './map-vm'
 import type { ChargeWithLocation } from '../functions/charging.functions'
 
 const snap = (atMs: number, lat: number, lng: number): RouteSnap => ({ lat, lng, atMs })
@@ -115,5 +115,34 @@ describe('clusterChargePoints', () => {
     const out = clusterChargePoints([charge(1, null, null), charge(2, 1, 2), charge(3, 3, null)])
     expect(out).toHaveLength(1)
     expect(out[0]).toMatchObject({ lat: 1, lng: 2, count: 1, id: '2' })
+  })
+})
+
+describe('mergeNearbyPoints', () => {
+  it('merges points within the radius into one centroid carrying the count', () => {
+    const out = mergeNearbyPoints([
+      [3.1, 101.7],
+      [3.1004, 101.7003],
+      [3.0998, 101.6998],
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].count).toBe(3)
+    expect(out[0].lat).toBeCloseTo(3.1, 3)
+    expect(out[0].lng).toBeCloseTo(101.7, 3)
+  })
+
+  it('keeps points beyond the radius separate, sorted by count descending', () => {
+    // two coincident + one ~1.1km away (well outside 150m).
+    const out = mergeNearbyPoints([
+      [3.1, 101.7],
+      [3.1004, 101.7003],
+      [3.11, 101.71],
+    ])
+    expect(out).toHaveLength(2)
+    expect(out.map((p) => p.count)).toEqual([2, 1])
+  })
+
+  it('returns an empty array for no points', () => {
+    expect(mergeNearbyPoints([])).toEqual([])
   })
 })
