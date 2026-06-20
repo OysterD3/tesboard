@@ -80,9 +80,9 @@ function ChargingPage() {
       {view === 'map' ? (
         points.length > 0 ? (
           <Card radius={22} style={{ padding: 14 }}>
-            <LifetimeMap points={points} routeColor={COLOR} markerColor={COLOR} isDark={isDark} height={540} onPointClick={open} />
+            <LifetimeMap points={points} routeColor={COLOR} markerColor={COLOR} isDark={isDark} height={540} />
             <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-              {points.length} location{points.length === 1 ? '' : 's'} · {totalCharges} charge{totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to open its latest
+              {points.length} location{points.length === 1 ? '' : 's'} · {totalCharges} charge{totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to zoom in
             </div>
           </Card>
         ) : (

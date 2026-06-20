@@ -6,17 +6,16 @@ import 'leaflet.markercluster/dist/MarkerCluster.css'
 export interface MapPoint {
   lat: number
   lng: number
-  /** Opaque id passed back to `onPointClick` when the place's pin is tapped (opens its most-recent session). */
-  id?: string
+  /** Dot color override (defaults to `markerColor`) — e.g. a muted drive-start vs an accent drive-end pin. */
+  color?: string
 }
 
 /**
  * Lifetime map for the Drives / Charging "Map" tabs: every drive as its own GPS
- * polyline, and one plain dot per distinct charge place, clustered with
- * leaflet.markercluster — a numbered bubble shows how many distinct PLACES it
- * merges (via `getChildCount`, never the session total), and tapping it zooms in
- * and splits it apart, down to the individual place dots (which call `onPointClick`
- * to open that place's most-recent session).
+ * polyline, plus point markers (charge places, or drive start/end endpoints)
+ * clustered with leaflet.markercluster — a numbered bubble shows how many markers
+ * it merges (via `getChildCount`). Tapping either a numbered bubble or an
+ * individual dot zooms the map toward it; the map never navigates away.
  * Leaflet + the cluster plugin touch `window`, so they're dynamically imported
  * inside the effect — they never enter the SSR/Workers bundle. Dark mode filters
  * the tile pane (see `.evd-map-dark`).
@@ -28,7 +27,6 @@ export function LifetimeMap({
   markerColor,
   isDark,
   height = 460,
-  onPointClick,
 }: {
   routes?: [number, number][][]
   points?: MapPoint[]
@@ -36,16 +34,10 @@ export function LifetimeMap({
   markerColor: string
   isDark: boolean
   height?: number
-  onPointClick?: (id: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<Leaflet.Map | null>(null)
   const layersRef = useRef<Leaflet.Layer[]>([])
-  // Kept in a ref so a new onPointClick identity doesn't rebuild the whole map.
-  const clickRef = useRef(onPointClick)
-  useEffect(() => {
-    clickRef.current = onPointClick
-  })
 
   useEffect(() => {
     let cancelled = false
@@ -80,13 +72,12 @@ export function LifetimeMap({
         layersRef.current.push(line)
       }
 
-      // Point markers — one per distinct charge LOCATION (clusterChargePoints has
-      // already collapsed every charge within its radius into a single place). Each
-      // place is a plain dot with NO number; tapping it opens that place's
-      // most-recent session. When several distinct places sit close enough to overlap
-      // at the current zoom, leaflet.markercluster groups them into one numbered
-      // bubble whose count is the number of PLACES it covers (getChildCount — never
-      // the session total); tapping the bubble zooms in and splits it apart.
+      // Point markers — plain dots (a charge place, or a drive start/end endpoint).
+      // Each is a bare dot with NO number; tapping it zooms the map toward it. When
+      // dots sit close enough to overlap at the current zoom, leaflet.markercluster
+      // groups them into one numbered bubble whose count is how many markers it
+      // covers (getChildCount); tapping the bubble zooms in and splits it apart. The
+      // map never navigates away — drilling into a session is done from the list.
       let clusters: Leaflet.MarkerClusterGroup | null = null
       if (points.length > 0) {
         const sizeFor = (n: number) => (n < 10 ? 34 : n < 100 ? 40 : 46)
@@ -102,13 +93,27 @@ export function LifetimeMap({
         clusters = L.markerClusterGroup({
           showCoverageOnHover: false,
           maxClusterRadius: 48,
-          // The bubble counts merged PLACES, not charge sessions.
           iconCreateFunction: (cluster) => badge(cluster.getChildCount()),
         })
-        const dot = L.divIcon({ html: dotHtml(markerColor), className: '', iconSize: [16, 16], iconAnchor: [8, 8] })
+        // One dot icon per distinct color (markerColor default; points may override).
+        const dotCache = new Map<string, Leaflet.DivIcon>()
+        const dotFor = (color: string) => {
+          let icon = dotCache.get(color)
+          if (!icon) {
+            icon = L.divIcon({ html: dotHtml(color), className: '', iconSize: [16, 16], iconAnchor: [8, 8] })
+            dotCache.set(color, icon)
+          }
+          return icon
+        }
+        // Tapping a lone dot flies the map toward it (a clustered dot's tap is handled
+        // by the cluster's default zoom-to-bounds) — so every tap zooms in, never navigates.
+        const zoomTo = (lat: number, lng: number) => {
+          const target = Math.min(Math.max(map.getZoom() + 3, 15), map.getMaxZoom())
+          map.flyTo([lat, lng], target, { duration: 0.6 })
+        }
         for (const p of points) {
-          const m = L.marker([p.lat, p.lng], { icon: dot })
-          if (p.id != null) m.on('click', () => clickRef.current?.(p.id as string))
+          const m = L.marker([p.lat, p.lng], { icon: dotFor(p.color ?? markerColor) })
+          m.on('click', () => zoomTo(p.lat, p.lng))
           clusters.addLayer(m)
         }
         map.addLayer(clusters)

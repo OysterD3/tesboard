@@ -1,11 +1,11 @@
 import { createFileRoute, getRouteApi, useNavigate, useRouter } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
 import { VirtualList } from '../../components/dashboard/VirtualList'
-import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
+import { LifetimeMap, type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
@@ -25,6 +25,9 @@ const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
+// Drive endpoint pins, mirroring the From→To cards: muted "from", accent "to".
+const START_PIN = '#86868b'
+const END_PIN = COLOR
 
 const VIEW_OPTIONS = [
   { label: 'History', value: 'history' as const },
@@ -48,6 +51,22 @@ function DrivesPage() {
   const fetchRoutes = useServerFn(getDriveRoutes)
   const [routesMap, setRoutesMap] = useState<DriveRoutesMap | null>(null)
   const [routesLoading, setRoutesLoading] = useState(false)
+
+  // A muted start pin + an accent end pin per route (first/last GPS fix). They
+  // cluster like the charge pins, so repeated origins/destinations collapse into
+  // one numbered bubble; tapping zooms in.
+  const drivePins = useMemo<MapPoint[]>(() => {
+    if (!routesMap) return []
+    const pins: MapPoint[] = []
+    for (const r of routesMap.routes) {
+      if (r.length === 0) continue
+      const s = r[0]
+      const e = r[r.length - 1]
+      pins.push({ lat: s[0], lng: s[1], color: START_PIN })
+      pins.push({ lat: e[0], lng: e[1], color: END_PIN })
+    }
+    return pins
+  }, [routesMap])
 
   useEffect(() => {
     if (view !== 'map' || routesMap) return
@@ -102,13 +121,18 @@ function DrivesPage() {
             <>
               <LifetimeMap
                 routes={routesMap.routes}
+                points={drivePins}
                 routeColor={COLOR}
                 markerColor={COLOR}
                 isDark={isDark}
                 height={540}
               />
-              <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-                {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · sampled at the poll cadence (not road-matched)
+              <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span>{routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'} · sampled at the poll cadence (not road-matched)</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: START_PIN, border: '1px solid #fff' }} /> start
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: END_PIN, border: '1px solid #fff', marginLeft: 6 }} /> end
+                </span>
               </div>
             </>
           ) : (
