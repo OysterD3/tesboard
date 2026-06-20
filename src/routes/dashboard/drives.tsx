@@ -1,22 +1,18 @@
 import { createFileRoute, getRouteApi, useNavigate, useRouter } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { BatteryGlyph, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
 import { VirtualList } from '../../components/dashboard/VirtualList'
-import { LifetimeMap, MapMessage, MapOverlay, type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
-import { mergeNearbyPoints } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
-import { getDriveRoutes, type DriveRoutesMap } from '../../functions/drives.functions'
 import { backfillAddresses } from '../../functions/geocode.functions'
 import { backfillElevation } from '../../functions/elevation.functions'
-import { backfillRouteMatch } from '../../functions/routematch.functions'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives')({
@@ -27,15 +23,16 @@ const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
+// History list vs the dedicated full-screen map route. The "Map" option navigates
+// to /dashboard/drives/map rather than flipping in-page state.
 const VIEW_OPTIONS = [
   { label: 'History', value: 'history' as const },
   { label: 'Map', value: 'map' as const },
 ]
 
 function DrivesPage() {
-  const { drives, activeVin } = dashApi.useLoaderData()
+  const { drives } = dashApi.useLoaderData()
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
@@ -44,50 +41,6 @@ function DrivesPage() {
   const [month, setMonth] = useState('all')
   const visible = month === 'all' ? all : all.filter((d) => d.monthKey === month)
   const rows = groupByMonth(visible, (d) => d.id)
-  const [view, setView] = useState<'history' | 'map'>('history')
-
-  // Lifetime route map — every drive as its own GPS polyline. Lazy-loaded the
-  // first time the Map tab is opened (and re-fetched if the active car changes).
-  const fetchRoutes = useServerFn(getDriveRoutes)
-  const [routesMap, setRoutesMap] = useState<DriveRoutesMap | null>(null)
-  const [routesLoading, setRoutesLoading] = useState(false)
-
-  // Drive start/end pins. Most routes share the same driveway / destination, so
-  // the raw endpoints are merged by proximity (150m, same as the charge map) into
-  // one pin per distinct place instead of hundreds of stacked dots; tapping zooms in.
-  const drivePins = useMemo<MapPoint[]>(() => {
-    if (!routesMap) return []
-    const endpoints: [number, number][] = []
-    for (const r of routesMap.routes) {
-      if (r.length === 0) continue
-      endpoints.push(r[0], r[r.length - 1])
-    }
-    return mergeNearbyPoints(endpoints).map((p) => ({ lat: p.lat, lng: p.lng }))
-  }, [routesMap])
-
-  useEffect(() => {
-    if (view !== 'map' || routesMap) return
-    let cancelled = false
-    setRoutesLoading(true)
-    fetchRoutes({ data: { vin: activeVin ?? undefined } })
-      .then((r) => {
-        if (!cancelled) setRoutesMap(r)
-      })
-      .catch(() => {
-        if (!cancelled) setRoutesMap({ routes: [], driveCount: 0 })
-      })
-      .finally(() => {
-        if (!cancelled) setRoutesLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [view, routesMap, fetchRoutes, activeVin])
-
-  // A car switch invalidates a cached route map.
-  useEffect(() => {
-    setRoutesMap(null)
-  }, [activeVin])
 
   function open(id: string) {
     navigate({ to: '/dashboard/drives/$driveId', params: { driveId: id }, search: (prev) => prev })
@@ -105,36 +58,19 @@ function DrivesPage() {
     )
   }
 
-  // Map view = a full-screen immersive map: the route map fills the whole
-  // viewport, with the History/Map toggle, Snap-to-roads action, and the caption
-  // floated over it.
-  if (view === 'map') {
-    const hasRoutes = !!routesMap && routesMap.routes.length > 0
-    return (
-      <MapOverlay
-        onBack={() => setView('history')}
-        topLeft={<Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />}
-        topRight={hasRoutes ? <SnapToRoadsButton isDark={isDark} onDone={() => setRoutesMap(null)} /> : null}
-        caption={
-          hasRoutes
-            ? `${routesMap!.driveCount} route${routesMap!.driveCount === 1 ? '' : 's'} · ${drivePins.length} start/end place${drivePins.length === 1 ? '' : 's'} · road-matched (drives too GPS-sparse to snap are hidden)`
-            : null
-        }
-      >
-        {hasRoutes ? (
-          <LifetimeMap fill routes={routesMap!.routes} points={drivePins} routeColor={COLOR} markerColor={COLOR} isDark={isDark} />
-        ) : (
-          <MapMessage>{routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}</MapMessage>
-        )}
-      </MapOverlay>
-    )
-  }
-
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <ViewTitle>Drives</ViewTitle>
-        <Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />
+        <Segmented
+          options={VIEW_OPTIONS}
+          value="history"
+          onChange={(v) => {
+            if (v === 'map') navigate({ to: '/dashboard/drives/map', search: (prev) => prev })
+          }}
+          accent={COLOR}
+          isDark={isDark}
+        />
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -377,92 +313,6 @@ function ResolveLocationsButton({ isDark }: { isDark: boolean }) {
       onClick={resolve}
       disabled={st.running}
       title="Look up street names for drives/charges that only show a time"
-      style={{
-        flex: 'none',
-        cursor: st.running ? 'default' : 'pointer',
-        fontSize: 12,
-        fontWeight: 600,
-        letterSpacing: '-0.01em',
-        color: st.running ? TD : COLOR,
-        background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
-        border: `1px solid ${st.running ? 'var(--border,rgba(0,0,0,0.08))' : COLOR}`,
-        borderRadius: 30,
-        padding: '7px 14px',
-        whiteSpace: 'nowrap',
-        opacity: st.running ? 0.8 : 1,
-      }}
-    >
-      {label}
-    </button>
-  )
-}
-
-/**
- * Road-match backfill trigger for the route map. Loops `backfillRouteMatch`
- * (throttled server-side, a few drives per call) until every drive has been
- * attempted, then `onDone()` re-fetches the route map so freshly road-matched
- * drives redraw on roads. When the server reports Mapbox isn't configured the
- * label nudges to set MAPBOX_TOKEN.
- */
-function SnapToRoadsButton({ isDark, onDone }: { isDark: boolean; onDone: () => void }) {
-  const run = useServerFn(backfillRouteMatch)
-  const [st, setSt] = useState<{ running: boolean; matched: number; remaining: number | null; done: boolean; configured: boolean }>({
-    running: false,
-    matched: 0,
-    remaining: null,
-    done: false,
-    configured: true,
-  })
-
-  async function snap() {
-    if (st.running) return
-    setSt({ running: true, matched: 0, remaining: null, done: false, configured: true })
-    let matched = 0
-    let configured = true
-    let stalls = 0
-    try {
-      for (let i = 0; i < 500; i++) {
-        const r = await run()
-        if (!r.configured) {
-          configured = false
-          break
-        }
-        matched += r.matched
-        setSt({ running: true, matched, remaining: r.remaining, done: false, configured: true })
-        if (r.remaining === 0) break
-        if (r.matched + r.failed > 0) {
-          stalls = 0
-          await sleep(400) // pace well under Mapbox's 300 req/min
-        } else {
-          // No progress — rate-limited/paused. Back off and retry a few times before giving up.
-          if (++stalls >= 6) break
-          await sleep(8000)
-        }
-      }
-    } catch {
-      /* finalize below */
-    } finally {
-      onDone()
-      setSt((s) => ({ ...s, running: false, done: true, configured }))
-    }
-  }
-
-  const label = !st.configured
-    ? 'Set MAPBOX_TOKEN to snap'
-    : st.running
-      ? `Snapping… ${st.matched}${st.remaining != null ? ` · ${st.remaining} left` : ''}`
-      : st.done
-        ? st.remaining
-          ? `Snapped ${st.matched} · ${st.remaining} left`
-          : `Snapped ${st.matched}`
-        : 'Snap to roads'
-
-  return (
-    <button
-      type="button"
-      onClick={snap}
-      disabled={st.running}
-      title="Road-match each drive's GPS to the street network via Mapbox (cached; needs MAPBOX_TOKEN)"
       style={{
         flex: 'none',
         cursor: st.running ? 'default' : 'pointer',

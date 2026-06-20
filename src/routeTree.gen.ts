@@ -22,7 +22,9 @@ import { Route as DashboardDrivesRouteImport } from './routes/dashboard/drives'
 import { Route as DashboardChargingRouteImport } from './routes/dashboard/charging'
 import { Route as DashboardBatteryRouteImport } from './routes/dashboard/battery'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard/analytics'
+import { Route as DashboardDrivesMapRouteImport } from './routes/dashboard/drives_.map'
 import { Route as DashboardDrivesDriveIdRouteImport } from './routes/dashboard/drives_.$driveId'
+import { Route as DashboardChargingMapRouteImport } from './routes/dashboard/charging_.map'
 import { Route as DashboardChargingChargeIdRouteImport } from './routes/dashboard/charging_.$chargeId'
 import { Route as ApiCronPollRouteImport } from './routes/api/cron/poll'
 import { Route as ApiAuthTeslaLoginRouteImport } from './routes/api/auth/tesla/login'
@@ -93,9 +95,19 @@ const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
   path: '/analytics',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardDrivesMapRoute = DashboardDrivesMapRouteImport.update({
+  id: '/drives_/map',
+  path: '/drives/map',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardDrivesDriveIdRoute = DashboardDrivesDriveIdRouteImport.update({
   id: '/drives_/$driveId',
   path: '/drives/$driveId',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardChargingMapRoute = DashboardChargingMapRouteImport.update({
+  id: '/charging_/map',
+  path: '/charging/map',
   getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardChargingChargeIdRoute =
@@ -136,7 +148,9 @@ export interface FileRoutesByFullPath {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/cron/poll': typeof ApiCronPollRoute
   '/dashboard/charging/$chargeId': typeof DashboardChargingChargeIdRoute
+  '/dashboard/charging/map': typeof DashboardChargingMapRoute
   '/dashboard/drives/$driveId': typeof DashboardDrivesDriveIdRoute
+  '/dashboard/drives/map': typeof DashboardDrivesMapRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
 }
@@ -155,7 +169,9 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardIndexRoute
   '/api/cron/poll': typeof ApiCronPollRoute
   '/dashboard/charging/$chargeId': typeof DashboardChargingChargeIdRoute
+  '/dashboard/charging/map': typeof DashboardChargingMapRoute
   '/dashboard/drives/$driveId': typeof DashboardDrivesDriveIdRoute
+  '/dashboard/drives/map': typeof DashboardDrivesMapRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
 }
@@ -176,7 +192,9 @@ export interface FileRoutesById {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/cron/poll': typeof ApiCronPollRoute
   '/dashboard/charging_/$chargeId': typeof DashboardChargingChargeIdRoute
+  '/dashboard/charging_/map': typeof DashboardChargingMapRoute
   '/dashboard/drives_/$driveId': typeof DashboardDrivesDriveIdRoute
+  '/dashboard/drives_/map': typeof DashboardDrivesMapRoute
   '/api/auth/tesla/callback': typeof ApiAuthTeslaCallbackRoute
   '/api/auth/tesla/login': typeof ApiAuthTeslaLoginRoute
 }
@@ -198,7 +216,9 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/cron/poll'
     | '/dashboard/charging/$chargeId'
+    | '/dashboard/charging/map'
     | '/dashboard/drives/$driveId'
+    | '/dashboard/drives/map'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
   fileRoutesByTo: FileRoutesByTo
@@ -217,7 +237,9 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/cron/poll'
     | '/dashboard/charging/$chargeId'
+    | '/dashboard/charging/map'
     | '/dashboard/drives/$driveId'
+    | '/dashboard/drives/map'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
   id:
@@ -237,7 +259,9 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/cron/poll'
     | '/dashboard/charging_/$chargeId'
+    | '/dashboard/charging_/map'
     | '/dashboard/drives_/$driveId'
+    | '/dashboard/drives_/map'
     | '/api/auth/tesla/callback'
     | '/api/auth/tesla/login'
   fileRoutesById: FileRoutesById
@@ -344,11 +368,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAnalyticsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/drives_/map': {
+      id: '/dashboard/drives_/map'
+      path: '/drives/map'
+      fullPath: '/dashboard/drives/map'
+      preLoaderRoute: typeof DashboardDrivesMapRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/drives_/$driveId': {
       id: '/dashboard/drives_/$driveId'
       path: '/drives/$driveId'
       fullPath: '/dashboard/drives/$driveId'
       preLoaderRoute: typeof DashboardDrivesDriveIdRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/charging_/map': {
+      id: '/dashboard/charging_/map'
+      path: '/charging/map'
+      fullPath: '/dashboard/charging/map'
+      preLoaderRoute: typeof DashboardChargingMapRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/dashboard/charging_/$chargeId': {
@@ -394,7 +432,9 @@ interface DashboardRouteChildren {
   DashboardSettingsRoute: typeof DashboardSettingsRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
   DashboardChargingChargeIdRoute: typeof DashboardChargingChargeIdRoute
+  DashboardChargingMapRoute: typeof DashboardChargingMapRoute
   DashboardDrivesDriveIdRoute: typeof DashboardDrivesDriveIdRoute
+  DashboardDrivesMapRoute: typeof DashboardDrivesMapRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
@@ -409,7 +449,9 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardSettingsRoute: DashboardSettingsRoute,
   DashboardIndexRoute: DashboardIndexRoute,
   DashboardChargingChargeIdRoute: DashboardChargingChargeIdRoute,
+  DashboardChargingMapRoute: DashboardChargingMapRoute,
   DashboardDrivesDriveIdRoute: DashboardDrivesDriveIdRoute,
+  DashboardDrivesMapRoute: DashboardDrivesMapRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(

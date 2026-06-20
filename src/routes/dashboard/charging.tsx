@@ -1,16 +1,16 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
 import { VirtualList } from '../../components/dashboard/VirtualList'
-import { LifetimeMap, MapMessage, MapOverlay } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildChargingReview, buildSessions, type SessionVM } from '../../lib/dashboard-vm'
-import { clusterChargePoints } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
 
+// History list vs the dedicated full-screen map route. The "Map" option navigates
+// to /dashboard/charging/map rather than flipping in-page state.
 const VIEW_OPTIONS = [
   { label: 'History', value: 'history' as const },
   { label: 'Map', value: 'map' as const },
@@ -50,9 +50,6 @@ function ChargingPage() {
   const [month, setMonth] = useState('all')
   const visible = month === 'all' ? all : all.filter((s) => s.monthKey === month)
   const rows = groupByMonth(visible, (s) => s.id)
-  const [view, setView] = useState<'history' | 'map'>('history')
-  const points = useMemo(() => clusterChargePoints(charging.sessions), [charging.sessions])
-  const totalCharges = useMemo(() => points.reduce((s, p) => s + p.count, 0), [points])
 
   function open(id: string) {
     navigate({ to: '/dashboard/charging/$chargeId', params: { chargeId: id }, search: (prev) => prev })
@@ -70,34 +67,19 @@ function ChargingPage() {
     )
   }
 
-  // Map view = a full-screen immersive map: charge places fill the whole viewport,
-  // with the History/Map toggle and the caption floated over it.
-  if (view === 'map') {
-    const hasPoints = points.length > 0
-    return (
-      <MapOverlay
-        onBack={() => setView('history')}
-        topLeft={<Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />}
-        caption={
-          hasPoints
-            ? `${points.length} location${points.length === 1 ? '' : 's'} · ${totalCharges} charge${totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to zoom in`
-            : null
-        }
-      >
-        {hasPoints ? (
-          <LifetimeMap fill points={points} routeColor={COLOR} markerColor={COLOR} isDark={isDark} />
-        ) : (
-          <MapMessage>No charge locations yet — sessions need a recorded location to map.</MapMessage>
-        )}
-      </MapOverlay>
-    )
-  }
-
   return (
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <ViewTitle>Charging</ViewTitle>
-        <Segmented options={VIEW_OPTIONS} value={view} onChange={setView} accent={COLOR} isDark={isDark} />
+        <Segmented
+          options={VIEW_OPTIONS}
+          value="history"
+          onChange={(v) => {
+            if (v === 'map') navigate({ to: '/dashboard/charging/map', search: (prev) => prev })
+          }}
+          accent={COLOR}
+          isDark={isDark}
+        />
       </div>
 
       {review.hasData && (
