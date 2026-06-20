@@ -418,6 +418,15 @@ export function buildPhantomCauses(
     totals.set(cause, (totals.get(cause) ?? 0) + drop)
   }
 
+  return buildCauseSlices(totals)
+}
+
+/**
+ * Reduce per-cause standby-loss totals (miles) to a sorted, percentage-split
+ * result. Shared by the row-by-row JS path (`buildPhantomCauses`) and the
+ * all-time SQL aggregation so both produce identical slices.
+ */
+export function buildCauseSlices(totals: Map<PhantomCause, number>): PhantomCausesResult {
   const totalMi = [...totals.values()].reduce((a, b) => a + b, 0)
   if (totalMi <= 0) return { hasData: false, totalMi: 0, slices: [] }
   const round1 = (n: number) => Math.round(n * 10) / 10

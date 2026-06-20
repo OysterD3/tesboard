@@ -11,3 +11,18 @@ import { z } from 'zod'
 export const vinFilter = z.object({ vin: z.string().min(1).optional() }).optional()
 
 export type VinFilter = z.infer<typeof vinFilter>
+
+/**
+ * `{ vin?, from?, to? }` for the Insights date-range filter. `from`/`to` are ISO
+ * timestamps; both `null`/absent means all-time (the server aggregates per-day in
+ * SQL instead of scanning raw rows). Tolerant of being called with no `data`.
+ */
+export const rangeVinFilter = z
+  .object({
+    vin: z.string().min(1).optional(),
+    from: z.string().min(1).nullable().optional(),
+    to: z.string().min(1).nullable().optional(),
+  })
+  .optional()
+
+export type RangeVinFilter = z.infer<typeof rangeVinFilter>

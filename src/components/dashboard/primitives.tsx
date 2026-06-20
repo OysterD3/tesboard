@@ -123,6 +123,8 @@ export function Segmented<T extends string>({
         return (
           <button
             key={o.value}
+            type="button"
+            aria-pressed={active}
             onClick={() => onChange(o.value)}
             style={{
               border: 'none',

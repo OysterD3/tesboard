@@ -64,7 +64,8 @@ export const getDashboardData = createServerFn({ method: 'GET' })
       // timeline) + phantom-drain moved OUT of this every-route loader to keep the
       // per-request SSR CPU under the Free-plan ~10ms cap. They now load lazily in
       // their own routes' loaders: /dashboard/analytics → getAnalyticsData,
-      // /dashboard/battery → getBatteryHealth, /dashboard/idles/insights → getPhantomDrain.
+      // /dashboard/battery → getBatteryHealth. The Idles → Insights page fetches
+      // getPhantomDrain/getPhantomCauses client-side (keyed on its date filter).
       const [readiness, drives, charging, rate, geofences] = await Promise.all([
         getDepartureReadinessCore(db, userId, { vin }),
         getDrivesCore(db, userId, { vin }),
@@ -73,6 +74,8 @@ export const getDashboardData = createServerFn({ method: 'GET' })
         getGeofencesCore(db, userId),
       ])
 
-      return { overview, activeVin, readiness, drives, charging, rate, geofences }
+      // Server-anchored "now" so the Insights pages' relative date windows
+      // resolve to identical bounds on SSR and the first client render.
+      return { overview, activeVin, readiness, drives, charging, rate, geofences, now: new Date().toISOString() }
     }),
   )

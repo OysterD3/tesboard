@@ -46,6 +46,10 @@ export function getDb() {
     fetch_types: false,
     max: 5, // see header — ≤6 simultaneous outbound conns per Worker request
     idle_timeout: 20, // backstop close of idle sockets (withDb closes explicitly)
+    // Pin the session zone so timestamptz text comes back UTC-normalised. Code that
+    // buckets a day via `iso.slice(0,10)` then matches SQL `at time zone 'UTC'`
+    // (e.g. phantom-drain bounded JS vs all-time SQL) regardless of server defaults.
+    connection: { TimeZone: 'UTC' },
   })
   return drizzle(client, { schema })
 }

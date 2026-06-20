@@ -1,9 +1,12 @@
 import { createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { useState } from 'react'
 import { Card, EmptyCard, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
+import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
-import { buildInsights } from '../../lib/dashboard-vm'
+import { buildChargeInsights } from '../../lib/dashboard-vm'
+import { resolveRange, type RangeState } from '../../lib/range-filter'
 import { distUnit } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/charging_/insights')({
@@ -22,15 +25,18 @@ function money(amount: number | null, currency: string, digits = 0): string {
 }
 
 /**
- * Charging → Insights. Cost of ownership: monthly run-rate, per-distance cost,
- * lifetime spend, and the home-vs-supercharge cost split. Derived from the
- * shared dashboard loader (no extra fetch).
+ * Charging → Insights. Cost of ownership over a user-selected date window
+ * (default last 7 days): monthly run-rate, per-distance cost, spend, and the
+ * home-vs-supercharge split. Filters the loader's sessions client-side.
  */
 function ChargingInsightsPage() {
-  const { drives, charging } = dashApi.useLoaderData()
+  const { charging, now } = dashApi.useLoaderData()
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
-  const vm = buildInsights(charging, drives)
+  const [range, setRange] = useState<RangeState>({ key: '7d' })
+
+  const nowMs = Date.parse(now)
+  const vm = buildChargeInsights(charging.sessions, resolveRange(range, nowMs))
 
   const homePct = vm.homePct != null ? Math.round(vm.homePct * 100) : null
   const costPerDist = vm.costPerMi != null ? (u.dist === 'mi' ? vm.costPerMi : vm.costPerMi / 1.60934) : null
@@ -42,6 +48,8 @@ function ChargingInsightsPage() {
         <SectionTabs section="charging" value="insights" accent={COLOR} isDark={isDark} />
       </div>
 
+      <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} />
+
       {vm.hasCharge ? (
         <Card radius={22} style={{ padding: 20 }}>
           <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Cost of ownership</span>
@@ -51,7 +59,7 @@ function ChargingInsightsPage() {
           </div>
           <div style={{ display: 'flex', gap: 24, marginTop: 16 }}>
             <Mini value={money(costPerDist, vm.currency, 3)} label={`${vm.currency === 'USD' ? '$' : vm.currency} / ${distUnit(u)}`} />
-            <Mini value={money(vm.lifetimeSpend, vm.currency)} label="Lifetime spend" />
+            <Mini value={money(vm.spend, vm.currency)} label="Spent" />
           </div>
           {homePct != null && (
             <div style={{ marginTop: 18 }}>
@@ -67,7 +75,7 @@ function ChargingInsightsPage() {
           )}
         </Card>
       ) : (
-        <EmptyCard title="No cost data yet" body="Cost of ownership appears once you’ve recorded charging sessions and set an electricity rate in Settings." />
+        <EmptyCard title="No charging in this range" body="Try a wider date range, or set an electricity rate in Settings once sessions are recorded." />
       )}
     </div>
   )

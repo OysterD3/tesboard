@@ -7,10 +7,11 @@
  * Pure module (no React / no server imports) — safe to use in the browser.
  */
 import type { OverviewPayload } from '../functions/overview.functions'
-import type { DrivesPayload } from '../functions/drives.functions'
-import type { ChargingPayload } from '../functions/charging.functions'
+import type { DrivesPayload, DriveWithLocation } from '../functions/drives.functions'
+import type { ChargingPayload, ChargeWithLocation } from '../functions/charging.functions'
 import type { DepartureReadinessPayload } from '../functions/readiness.functions'
 import type { PhantomDrain } from '../functions/insights.functions'
+import { filterByRange, type ResolvedRange } from './range-filter'
 
 const KM_PER_MI = 1.60934
 const miToKm = (mi: number) => mi * KM_PER_MI
@@ -360,6 +361,109 @@ export function buildInsights(
           series: phantom.series.map((d) => ({ date: d.date, lostKm: round(miToKm(d.lostMi), 1) })),
         }
       : null,
+  }
+}
+
+// ── Range-windowed Insights (Drives / Charging sub-pages) ──────────────────────
+//
+// The Insights pages recompute their cards over a user-selected date window. The
+// dashboard loader already ships up to 500 recent drives/charges, so these filter
+// the arrays client-side and re-aggregate from the rows directly (the server-side
+// `stats` are all-time and can't be reused for a window). Pure + hydration-safe:
+// day counts bucket on the UTC date slice, never `toLocaleDateString`.
+
+export interface DriveInsightsVM {
+  hasDrives: boolean
+  /** Drives in the window. */
+  count: number
+  daysDriven: number | null
+  longestKm: number | null
+  mostEffWhKm: number | null
+  /** Total distance driven in the window (km). */
+  distKm: number | null
+  /** Charging spend in the window (for the "driven X on $Y" summary). */
+  spend: number | null
+  currency: string
+}
+
+/** Streaks & milestones over `range` (Drives → Insights). */
+export function buildDriveInsights(
+  drives: DriveWithLocation[],
+  charging: ChargeWithLocation[],
+  range: ResolvedRange,
+): DriveInsightsVM {
+  const ds = filterByRange(drives, range)
+  const cs = filterByRange(charging, range)
+  const hasDrives = ds.length > 0
+  const effs = ds.map((d) => d.wh_per_mi).filter((w): w is number => w != null && w > 0)
+  const distMi = ds.reduce((a, d) => a + (d.distance_mi ?? 0), 0)
+  let spend = 0
+  let currency = 'USD'
+  for (const c of cs) {
+    spend += c.cost_amount ?? 0
+    if (c.cost_currency) currency = c.cost_currency
+  }
+  return {
+    hasDrives,
+    count: ds.length,
+    daysDriven: hasDrives ? new Set(ds.map((d) => d.started_at.slice(0, 10))).size : null,
+    longestKm: hasDrives ? round(miToKm(Math.max(...ds.map((d) => d.distance_mi ?? 0)))) : null,
+    mostEffWhKm: effs.length > 0 ? round(whPerMiToWhKm(Math.min(...effs))) : null,
+    distKm: hasDrives ? round(miToKm(distMi)) : null,
+    spend: cs.length > 0 ? round(spend) : null,
+    currency,
+  }
+}
+
+export interface ChargeInsightsVM {
+  hasCharge: boolean
+  /** Monthly run-rate extrapolated from the window's session span. */
+  costPerMonth: number | null
+  /** Cost per rated mile added (currency/mi); convert to display units in the view. */
+  costPerMi: number | null
+  /** Total spend in the window. */
+  spend: number | null
+  currency: string
+  /** Share of cost that was home/AC (0–1), null when no cost split. */
+  homePct: number | null
+}
+
+/** Cost of ownership over `range` (Charging → Insights). Mirrors the server `summarize`. */
+export function buildChargeInsights(charging: ChargeWithLocation[], range: ResolvedRange): ChargeInsightsVM {
+  const cs = filterByRange(charging, range)
+  const hasCharge = cs.length > 0
+  let totalCost = 0
+  let milesAdded = 0
+  let homeCost = 0
+  let scCost = 0
+  let currency = 'USD'
+  const ts: number[] = []
+  for (const s of cs) {
+    const cost = s.cost_amount ?? 0
+    totalCost += cost
+    milesAdded += s.miles_added_rated ?? 0
+    if (s.cost_currency) currency = s.cost_currency
+    if (s.source === 'supercharger') scCost += cost
+    else homeCost += cost
+    const t = new Date(s.started_at).getTime()
+    if (!Number.isNaN(t)) ts.push(t)
+  }
+  const split = homeCost + scCost
+  let costPerMonth: number | null = null
+  if (hasCharge) {
+    if (ts.length < 2) costPerMonth = round(totalCost)
+    else {
+      const spanDays = Math.max(1, (Math.max(...ts) - Math.min(...ts)) / 86_400_000)
+      costPerMonth = round((totalCost / spanDays) * 30)
+    }
+  }
+  return {
+    hasCharge,
+    costPerMonth,
+    costPerMi: milesAdded > 0 ? round(totalCost / milesAdded, 4) : null,
+    spend: hasCharge ? round(totalCost) : null,
+    currency,
+    homePct: hasCharge && split > 0 ? homeCost / split : null,
   }
 }
 

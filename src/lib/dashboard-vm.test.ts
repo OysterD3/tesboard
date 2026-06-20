@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildChargingReview, buildDrives, buildSessions } from './dashboard-vm'
+import { buildChargeInsights, buildChargingReview, buildDriveInsights, buildDrives, buildSessions } from './dashboard-vm'
+import { resolveRange } from './range-filter'
 import type { ChargingPayload } from '../functions/charging.functions'
 import type { ChargeWithLocation } from '../functions/charging.functions'
 import type { DrivesPayload, DriveWithLocation } from '../functions/drives.functions'
@@ -163,5 +164,77 @@ describe('buildSessions', () => {
     const [s] = buildSessions(payload([session({ ended_at: null, end_battery_level: null })]), 'UTC')
     expect(s.endStamp).toBeNull()
     expect(s.endBattery).toBeNull()
+  })
+})
+
+// Anchor "now" so the relative windows are deterministic.
+const NOW = Date.parse('2026-06-20T12:00:00.000Z')
+const KM_PER_MI = 1.60934
+
+describe('buildDriveInsights', () => {
+  const drives = [
+    drive({ id: 1, started_at: '2026-06-19T10:00:00Z', distance_mi: 10, wh_per_mi: 250 }), // in 7d
+    drive({ id: 2, started_at: '2026-06-15T10:00:00Z', distance_mi: 50, wh_per_mi: 200 }), // in 7d (longest, most eff)
+    drive({ id: 3, started_at: '2026-05-01T10:00:00Z', distance_mi: 99, wh_per_mi: 150 }), // outside 7d/30d
+  ]
+  const charges = [
+    session({ id: 1, started_at: '2026-06-18T10:00:00Z', cost_amount: 4, cost_currency: 'USD' }), // in 7d
+    session({ id: 2, started_at: '2026-05-01T10:00:00Z', cost_amount: 99, cost_currency: 'USD' }), // outside
+  ]
+
+  it('windows milestones to the last 7 days', () => {
+    const vm = buildDriveInsights(drives, charges, resolveRange({ key: '7d' }, NOW))
+    expect(vm.hasDrives).toBe(true)
+    expect(vm.count).toBe(2)
+    expect(vm.daysDriven).toBe(2)
+    // km fields round to whole units (mirrors buildInsights).
+    expect(vm.longestKm).toBe(Math.round(50 * KM_PER_MI)) // 80
+    expect(vm.mostEffWhKm).toBe(Math.round(200 / KM_PER_MI)) // 124
+    expect(vm.distKm).toBe(Math.round(60 * KM_PER_MI)) // 97
+    expect(vm.spend).toBe(4) // only the in-window charge
+  })
+
+  it('all-time includes every drive', () => {
+    const vm = buildDriveInsights(drives, charges, resolveRange({ key: 'all' }, NOW))
+    expect(vm.count).toBe(3)
+    expect(vm.longestKm).toBe(Math.round(99 * KM_PER_MI)) // 159
+    expect(vm.spend).toBe(103)
+  })
+
+  it('empty window reports no drives', () => {
+    const vm = buildDriveInsights([], [], resolveRange({ key: '7d' }, NOW))
+    expect(vm.hasDrives).toBe(false)
+    expect(vm.daysDriven).toBeNull()
+    expect(vm.longestKm).toBeNull()
+    expect(vm.spend).toBeNull()
+  })
+})
+
+describe('buildChargeInsights', () => {
+  const charges = [
+    session({ id: 1, started_at: '2026-06-18T10:00:00Z', source: 'home', cost_amount: 6, miles_added_rated: 30 }),
+    session({ id: 2, started_at: '2026-06-14T10:00:00Z', source: 'supercharger', cost_amount: 14, miles_added_rated: 70 }),
+    session({ id: 3, started_at: '2026-04-01T10:00:00Z', source: 'home', cost_amount: 99, miles_added_rated: 500 }),
+  ]
+
+  it('windows cost of ownership to the last 7 days', () => {
+    const vm = buildChargeInsights(charges, resolveRange({ key: '7d' }, NOW))
+    expect(vm.hasCharge).toBe(true)
+    expect(vm.spend).toBe(20) // 6 + 14, excludes April
+    expect(vm.costPerMi).toBeCloseTo(20 / 100, 4) // (6+14) / (30+70)
+    expect(vm.homePct).toBeCloseTo(6 / 20, 4)
+    expect(vm.costPerMonth).not.toBeNull()
+  })
+
+  it('all-time spend sums every session', () => {
+    const vm = buildChargeInsights(charges, resolveRange({ key: 'all' }, NOW))
+    expect(vm.spend).toBe(119)
+  })
+
+  it('empty window reports no charge data', () => {
+    const vm = buildChargeInsights([], resolveRange({ key: '7d' }, NOW))
+    expect(vm.hasCharge).toBe(false)
+    expect(vm.spend).toBeNull()
+    expect(vm.homePct).toBeNull()
   })
 })
