@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChargeMarkers, groupRoutes, type RouteSnap, type RouteWindow } from './map-vm'
+import { chargePoints, groupRoutes, type RouteSnap, type RouteWindow } from './map-vm'
 import type { ChargeWithLocation } from '../functions/charging.functions'
 
 const snap = (atMs: number, lat: number, lng: number): RouteSnap => ({ lat, lng, atMs })
@@ -53,25 +53,19 @@ describe('groupRoutes', () => {
   })
 })
 
-const charge = (lat: number | null, lng: number | null): ChargeWithLocation =>
-  ({ lat, lng } as ChargeWithLocation)
+const charge = (id: number, lat: number | null, lng: number | null): ChargeWithLocation =>
+  ({ id, lat, lng } as ChargeWithLocation)
 
-describe('buildChargeMarkers', () => {
-  it('clusters charges at the same ~111 m cell and counts them', () => {
-    const markers = buildChargeMarkers([
-      charge(3.1001, 101.7001),
-      charge(3.1002, 101.7003), // same 3-dp cell → clustered
-      charge(3.2, 101.65), // different cell
-    ])
-    expect(markers).toHaveLength(2)
-    const home = markers.find((m) => m.count === 2)
-    expect(home).toBeTruthy()
-    expect(markers.find((m) => m.count === 1)).toBeTruthy()
+describe('chargePoints', () => {
+  it('emits one point per located session (the map clusters them dynamically)', () => {
+    const pts = chargePoints([charge(1, 3.1, 101.7), charge(2, 3.1, 101.7), charge(3, 3.2, 101.65)])
+    expect(pts).toHaveLength(3)
+    expect(pts[0]).toEqual({ lat: 3.1, lng: 101.7, id: '1' })
   })
 
   it('skips charges without coordinates', () => {
-    const markers = buildChargeMarkers([charge(null, null), charge(1, 2), charge(3, null)])
-    expect(markers).toHaveLength(1)
-    expect(markers[0]).toMatchObject({ lat: 1, lng: 2, count: 1 })
+    const pts = chargePoints([charge(1, null, null), charge(2, 1, 2), charge(3, 3, null)])
+    expect(pts).toHaveLength(1)
+    expect(pts[0]).toEqual({ lat: 1, lng: 2, id: '2' })
   })
 })

@@ -6,7 +6,7 @@ import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildChargingReview, buildSessions, type SessionVM } from '../../lib/dashboard-vm'
-import { buildChargeMarkers } from '../../lib/map-vm'
+import { chargePoints } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
@@ -51,8 +51,7 @@ function ChargingPage() {
   const visible = month === 'all' ? all : all.filter((s) => s.monthKey === month)
   const rows = groupByMonth(visible, (s) => s.id)
   const [view, setView] = useState<'history' | 'map'>('history')
-  const markers = useMemo(() => buildChargeMarkers(charging.sessions), [charging.sessions])
-  const totalCharges = markers.reduce((n, m) => n + m.count, 0)
+  const points = useMemo(() => chargePoints(charging.sessions), [charging.sessions])
 
   function open(id: string) {
     navigate({ to: '/dashboard/charging/$chargeId', params: { chargeId: id }, search: (prev) => prev })
@@ -78,11 +77,11 @@ function ChargingPage() {
       </div>
 
       {view === 'map' ? (
-        markers.length > 0 ? (
+        points.length > 0 ? (
           <Card radius={22} style={{ padding: 14 }}>
-            <LifetimeMap markers={markers} routeColor={COLOR} markerColor={COLOR} isDark={isDark} height={540} />
+            <LifetimeMap points={points} routeColor={COLOR} markerColor={COLOR} isDark={isDark} height={540} onPointClick={open} />
             <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
-              {markers.length} location{markers.length === 1 ? '' : 's'} · {totalCharges} session{totalCharges === 1 ? '' : 's'}
+              {points.length} charge{points.length === 1 ? '' : 's'} · tap a cluster to zoom in, a marker to open it
             </div>
           </Card>
         ) : (

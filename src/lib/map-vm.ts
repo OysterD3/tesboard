@@ -23,11 +23,12 @@ export interface RouteWindow {
   endMs: number
 }
 
-/** A charge location cluster: a point and how many sessions happened there. */
-export interface ChargeMarker {
+/** A single charge session as a map point (clustered dynamically by the map). */
+export interface ChargePoint {
   lat: number
   lng: number
-  count: number
+  /** Session id, so tapping the marker can open the charge detail page. */
+  id: string
 }
 
 /**
@@ -65,19 +66,16 @@ export function groupRoutes(
 }
 
 /**
- * Collapse charge sessions into location clusters: round each lat/lng to a ~111 m
- * grid (3 dp) and count sessions per cell, so a home charged 40 times shows as one
- * marker labelled 40 rather than 40 stacked pins. Sessions without coordinates are
- * skipped. The cluster point is the first session's exact coordinate in the cell.
+ * One map point per charge session that has coordinates (sessions without are
+ * skipped). These are fed individually to the map's marker-cluster layer, which
+ * merges them into numbered clusters per zoom and splits them on tap — so the
+ * grouping is dynamic, not baked in here.
  */
-export function buildChargeMarkers(sessions: ChargeWithLocation[]): ChargeMarker[] {
-  const byCell = new Map<string, ChargeMarker>()
+export function chargePoints(sessions: ChargeWithLocation[]): ChargePoint[] {
+  const out: ChargePoint[] = []
   for (const s of sessions) {
     if (s.lat == null || s.lng == null) continue
-    const key = `${s.lat.toFixed(3)},${s.lng.toFixed(3)}`
-    const existing = byCell.get(key)
-    if (existing) existing.count++
-    else byCell.set(key, { lat: s.lat, lng: s.lng, count: 1 })
+    out.push({ lat: s.lat, lng: s.lng, id: String(s.id) })
   }
-  return [...byCell.values()]
+  return out
 }

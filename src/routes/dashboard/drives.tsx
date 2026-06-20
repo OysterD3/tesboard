@@ -9,7 +9,7 @@ import { LifetimeMap } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
-import { buildChargeMarkers } from '../../lib/map-vm'
+import { chargePoints } from '../../lib/map-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
@@ -49,7 +49,7 @@ function DrivesPage() {
   const fetchRoutes = useServerFn(getDriveRoutes)
   const [routesMap, setRoutesMap] = useState<DriveRoutesMap | null>(null)
   const [routesLoading, setRoutesLoading] = useState(false)
-  const chargeMarkers = useMemo(() => buildChargeMarkers(charging.sessions), [charging.sessions])
+  const chargePts = useMemo(() => chargePoints(charging.sessions), [charging.sessions])
 
   useEffect(() => {
     if (view !== 'map' || routesMap) return
@@ -100,12 +100,20 @@ function DrivesPage() {
 
       {view === 'map' ? (
         <Card radius={22} style={{ padding: 14 }}>
-          {routesMap && (routesMap.routes.length > 0 || chargeMarkers.length > 0) ? (
+          {routesMap && (routesMap.routes.length > 0 || chargePts.length > 0) ? (
             <>
-              <LifetimeMap routes={routesMap.routes} markers={chargeMarkers} routeColor={COLOR} markerColor={SECTION.charging} isDark={isDark} height={540} />
+              <LifetimeMap
+                routes={routesMap.routes}
+                points={chargePts}
+                routeColor={COLOR}
+                markerColor={SECTION.charging}
+                isDark={isDark}
+                height={540}
+                onPointClick={(id) => navigate({ to: '/dashboard/charging/$chargeId', params: { chargeId: id }, search: (prev) => prev })}
+              />
               <div style={{ fontSize: 10, fontWeight: 500, color: TD, marginTop: 8, paddingLeft: 2 }}>
                 {routesMap.driveCount} route{routesMap.driveCount === 1 ? '' : 's'}
-                {chargeMarkers.length > 0 ? ` · ${chargeMarkers.length} charge location${chargeMarkers.length === 1 ? '' : 's'}` : ''} · sampled at the poll cadence (not road-matched)
+                {chargePts.length > 0 ? ` · ${chargePts.length} charge${chargePts.length === 1 ? '' : 's'}` : ''} · sampled at the poll cadence (not road-matched)
               </div>
             </>
           ) : (
