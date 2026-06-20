@@ -60,66 +60,70 @@ export async function getBatteryHealthCore(
   data: VinFilter,
 ): Promise<BatteryHealthResult> {
   const vin = data?.vin
-  const [veh] = await db
-    .select({ eff: vehicle.efficiency_wh_per_mi, pack: vehicle.pack_kwh })
-    .from(vehicle)
-    .where(and(eq(vehicle.user_id, userId), vin ? eq(vehicle.vin, vin) : undefined))
-    .limit(1)
+  // These four reads are independent — run them concurrently (instead of four
+  // serial round-trips) so this fn stops being the long pole inside the dashboard
+  // loader's Promise.all. Comments on each query below.
+  const [vehRows, energyRows, chargeRows, driveRows] = await Promise.all([
+    db
+      .select({ eff: vehicle.efficiency_wh_per_mi, pack: vehicle.pack_kwh })
+      .from(vehicle)
+      .where(and(eq(vehicle.user_id, userId), vin ? eq(vehicle.vin, vin) : undefined))
+      .limit(1),
+    // Lifetime charge energy for the cycle count: ALL charges with energy added
+    // (not just the >5 kWh capacity-grade ones below — small top-ups still wear
+    // the pack). Each row is one session's reset-resolved total → plain sum.
+    db
+      .select({ e: chargeSession.energy_added_kwh })
+      .from(chargeSession)
+      .where(
+        and(
+          eq(chargeSession.user_id, userId),
+          vin ? eq(chargeSession.vin, vin) : undefined,
+          isNotNull(chargeSession.energy_added_kwh),
+          gt(chargeSession.energy_added_kwh, 0),
+        ),
+      ),
+    db
+      .select({
+        ended_at: chargeSession.ended_at,
+        end_range_mi: chargeSession.end_range_mi,
+        end_battery_level: chargeSession.end_battery_level,
+      })
+      .from(chargeSession)
+      .where(
+        and(
+          eq(chargeSession.user_id, userId),
+          vin ? eq(chargeSession.vin, vin) : undefined,
+          isNotNull(chargeSession.ended_at),
+          isNotNull(chargeSession.end_range_mi),
+          isNotNull(chargeSession.end_battery_level),
+          gt(chargeSession.energy_added_kwh, MIN_CHARGE_KWH),
+        ),
+      )
+      .orderBy(asc(chargeSession.ended_at)),
+    // Odometer isn't stored on charge_session — derive it from the drive that
+    // brought the car to the charger (the last drive endpoint at/before the read).
+    db
+      .select({ ended_at: driveSession.ended_at, end_odometer: driveSession.end_odometer })
+      .from(driveSession)
+      .where(
+        and(
+          eq(driveSession.user_id, userId),
+          vin ? eq(driveSession.vin, vin) : undefined,
+          isNotNull(driveSession.ended_at),
+          isNotNull(driveSession.end_odometer),
+        ),
+      )
+      .orderBy(asc(driveSession.ended_at)),
+  ])
+
+  const veh = vehRows[0]
   const eff = veh?.eff ?? null
   const pack = veh?.pack ?? null
-
-  // Lifetime charge energy for the cycle count: ALL charges with energy added
-  // (not just the >5 kWh capacity-grade ones below — small top-ups still wear
-  // the pack). Each row is one session's reset-resolved total → plain sum.
-  const energyRows = await db
-    .select({ e: chargeSession.energy_added_kwh })
-    .from(chargeSession)
-    .where(
-      and(
-        eq(chargeSession.user_id, userId),
-        vin ? eq(chargeSession.vin, vin) : undefined,
-        isNotNull(chargeSession.energy_added_kwh),
-        gt(chargeSession.energy_added_kwh, 0),
-      ),
-    )
   const cycle = buildChargeCycleCount(
     energyRows.map((r) => r.e).filter((e): e is number => e != null),
     pack,
   )
-
-  const chargeRows = await db
-    .select({
-      ended_at: chargeSession.ended_at,
-      end_range_mi: chargeSession.end_range_mi,
-      end_battery_level: chargeSession.end_battery_level,
-    })
-    .from(chargeSession)
-    .where(
-      and(
-        eq(chargeSession.user_id, userId),
-        vin ? eq(chargeSession.vin, vin) : undefined,
-        isNotNull(chargeSession.ended_at),
-        isNotNull(chargeSession.end_range_mi),
-        isNotNull(chargeSession.end_battery_level),
-        gt(chargeSession.energy_added_kwh, MIN_CHARGE_KWH),
-      ),
-    )
-    .orderBy(asc(chargeSession.ended_at))
-
-  // Odometer isn't stored on charge_session — derive it from the drive that
-  // brought the car to the charger (the last drive endpoint at/before the read).
-  const driveRows = await db
-    .select({ ended_at: driveSession.ended_at, end_odometer: driveSession.end_odometer })
-    .from(driveSession)
-    .where(
-      and(
-        eq(driveSession.user_id, userId),
-        vin ? eq(driveSession.vin, vin) : undefined,
-        isNotNull(driveSession.ended_at),
-        isNotNull(driveSession.end_odometer),
-      ),
-    )
-    .orderBy(asc(driveSession.ended_at))
 
   const odo: OdoSample[] = driveRows
     .filter((r): r is { ended_at: string; end_odometer: number } =>

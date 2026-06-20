@@ -80,11 +80,13 @@ export function emptyPollSummary(): PollSummary {
 
 /**
  * One baseline poll cycle (the cron). When burst polling is ON, the cron stays
- * the baseline + watchdog: it polls each online vehicle once (deferring session
- * CLOSE to the Durable Object so dense polling can't split sessions), and returns
- * the VINs that are active (or have an open session) for the worker to arm/re-arm
- * the per-VIN DO. When burst is OFF this behaves exactly as it always has —
- * closing sessions inline, no DO involved, `armVins` empty.
+ * the baseline + watchdog: for an online car with an open session it defers to the
+ * Durable Object (the sole writer, so dense polling can't split sessions); for an
+ * online car with NO open session it polls once to detect a drive/charge START. It
+ * returns the VINs that are active (or have an open session) for the worker to
+ * arm/re-arm the per-VIN DO — so a merely parked-but-awake car never spins the DO.
+ * When burst is OFF this behaves exactly as it always has — closing sessions
+ * inline, no DO involved, `armVins` empty.
  */
 export async function runPollCycle(): Promise<PollCycleResult> {
   const burstEnabled = serverEnv.burstPoll().enabled
@@ -118,19 +120,36 @@ async function pollUser(
 
   for (const v of vehicles) {
     if (burstEnabled) {
-      // Burst ON: the per-VIN DO is the SOLE writer of vehicle_data + sessions for
-      // an online car — one writer, so the cron can't re-open a session the DO just
-      // closed (no split). The cron keeps the cheap, sleep-safe bookkeeping for
-      // EVERY car (state timeline + the 6h stale-session reaper) and arms the DO for
-      // online ones; sleeping/offline cars never get a DO (and don't need one).
-      await reapStaleSessions(db, userId, v.vin, summary)
-      if (v.state === 'online') {
-        armVins.push({ userId, vin: v.vin })
-      } else {
+      // Burst ON. Sleeping/offline cars never get a DO — cheap, sleep-safe
+      // bookkeeping only (state timeline + the 6h stale-session reaper).
+      if (v.state !== 'online') {
+        await reapStaleSessions(db, userId, v.vin, summary)
         await setLastState(db, userId, v.vin, v.state, summary)
         await recordStateTransition(db, userId, v.vin, v.state, summary)
         summary.asleep++
+        continue
       }
+
+      // Online with an OPEN drive/charge session: the per-VIN DO owns it as the SOLE
+      // writer. Re-arm it and DEFER — do NOT read vehicle_data here, so the cron
+      // can't interleave a write and split the session. Keep state/timeline current.
+      if (await hasOpenSession(db, userId, v.vin)) {
+        await reapStaleSessions(db, userId, v.vin, summary)
+        await setLastState(db, userId, v.vin, v.state, summary)
+        await recordStateTransition(db, userId, v.vin, v.state, summary)
+        armVins.push({ userId, vin: v.vin })
+        continue
+      }
+
+      // Online but NO open session: the car is awake yet not mid-session — it may
+      // just have started driving/charging, OR it's only parked-but-awake (Sentry /
+      // climate). Poll ONCE here (the cron is the sole writer right now — the DO
+      // isn't running) and arm the DO ONLY on an active reading. A parked-but-awake
+      // car therefore stays on the cheap ~2-min cron cadence instead of spinning the
+      // DO every ~20-30s — eliminating the idle Fleet-API + Hyperdrive-pool churn
+      // (the DO's hysteresis still cleanly closes the tail of a real drive/charge).
+      const mode = await pollVehicleStep(db, userId, ctx, v, summary, /* debounceClose */ false)
+      if (mode === 'driving' || mode === 'charging') armVins.push({ userId, vin: v.vin })
       continue
     }
 
@@ -138,6 +157,12 @@ async function pollUser(
     // first not-active reading.
     await pollVehicleStep(db, userId, ctx, v, summary, /* debounceClose */ false)
   }
+}
+
+/** Does this vehicle have an open (un-ended) drive or charge session right now? */
+async function hasOpenSession(db: Db, userId: string, vin: string): Promise<boolean> {
+  if (await openSession(db, chargeSession, vin, userId)) return true
+  return (await openSession(db, driveSession, vin, userId)) != null
 }
 
 /** Update the cached last_state (best-effort; an error here never aborts a poll). */

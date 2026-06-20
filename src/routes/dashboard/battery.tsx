@@ -1,14 +1,19 @@
-import { Link, createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
 import { BatteryScatter, type ScatterPoint } from '../../components/dashboard/BatteryScatter'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, hexToRgba } from '../../components/dashboard/theme'
 import { distUnit, fmtDist } from '../../lib/units'
+import { getBatteryHealth } from '../../functions/battery.functions'
 
-export const Route = createFileRoute('/dashboard/battery')({ component: BatteryHealthPage })
+export const Route = createFileRoute('/dashboard/battery')({
+  // Loaded lazily here (not in the every-route parent loader) to keep SSR CPU low.
+  loaderDeps: ({ search }) => ({ vin: (search as { vin?: string }).vin }),
+  loader: ({ deps }) => getBatteryHealth({ data: { vin: deps.vin } }),
+  component: BatteryHealthPage,
+})
 
-const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const MI_TO_KM = 1.609344
@@ -17,7 +22,7 @@ const round1 = (n: number) => Math.round(n * 10) / 10
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 function BatteryHealthPage() {
-  const { battery } = dashApi.useLoaderData()
+  const battery = Route.useLoaderData()
   const { units: u, accent, theme } = useDash()
   const isDark = theme === 'dark'
 

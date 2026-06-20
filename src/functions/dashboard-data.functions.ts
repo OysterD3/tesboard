@@ -22,12 +22,6 @@ import { getDepartureReadinessCore } from './readiness.functions'
 import { getDrivesCore } from './drives.functions'
 import { getChargingCore } from './charging.functions'
 import { getRateCore } from './rate.functions'
-import { getPhantomDrainCore } from './insights.functions'
-import { getBatteryHealthCore } from './battery.functions'
-import { getEfficiencyAnalysisCore } from './efficiency-analysis.functions'
-import { getMileageCore } from './mileage.functions'
-import { getStatesCore } from './states.functions'
-import { getTimelineCore } from './timeline.functions'
 import { getGeofencesCore } from './geofences.functions'
 
 /**
@@ -66,46 +60,19 @@ export const getDashboardData = createServerFn({ method: 'GET' })
       const activeVin = resolveActiveVin(overview.vehicles, data?.vin)
       const vin = activeVin ?? undefined
 
-      const [
-        readiness,
-        drives,
-        charging,
-        rate,
-        phantom,
-        battery,
-        efficiency,
-        mileage,
-        states,
-        timeline,
-        geofences,
-      ] = await Promise.all([
+      // The heavier analytics reads (battery, efficiency, mileage, states,
+      // timeline) + phantom-drain moved OUT of this every-route loader to keep the
+      // per-request SSR CPU under the Free-plan ~10ms cap. They now load lazily in
+      // their own routes' loaders: /dashboard/analytics → getAnalyticsData,
+      // /dashboard/battery → getBatteryHealth, /dashboard/insights → getPhantomDrain.
+      const [readiness, drives, charging, rate, geofences] = await Promise.all([
         getDepartureReadinessCore(db, userId, { vin }),
         getDrivesCore(db, userId, { vin }),
         getChargingCore(db, userId, { vin }),
         getRateCore(db, userId),
-        getPhantomDrainCore(db, userId, { vin }),
-        getBatteryHealthCore(db, userId, { vin }),
-        getEfficiencyAnalysisCore(db, userId, { vin, days: 365 }),
-        getMileageCore(db, userId, { vin, period: 'month' }),
-        getStatesCore(db, userId, { vin, days: 30 }),
-        getTimelineCore(db, userId, { vin, days: 30 }),
         getGeofencesCore(db, userId),
       ])
 
-      return {
-        overview,
-        activeVin,
-        readiness,
-        drives,
-        charging,
-        rate,
-        phantom,
-        battery,
-        efficiency,
-        mileage,
-        states,
-        timeline,
-        geofences,
-      }
+      return { overview, activeVin, readiness, drives, charging, rate, geofences }
     }),
   )

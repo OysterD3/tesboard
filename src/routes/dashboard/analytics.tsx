@@ -1,5 +1,6 @@
-import { Link, createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
+import { getAnalyticsData } from '../../functions/analytics-data.functions'
 import { Card, ChartTooltip, EmptyCard, HoverBars, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON } from '../../components/dashboard/theme'
@@ -17,9 +18,13 @@ import {
 } from '../../lib/units'
 import { useDisplayTz } from '../../lib/use-hydrated'
 
-export const Route = createFileRoute('/dashboard/analytics')({ component: AnalyticsPage })
+export const Route = createFileRoute('/dashboard/analytics')({
+  // Loaded lazily here (not in the every-route parent loader) to keep SSR CPU low.
+  loaderDeps: ({ search }) => ({ vin: (search as { vin?: string }).vin }),
+  loader: ({ deps }) => getAnalyticsData({ data: { vin: deps.vin } }),
+  component: AnalyticsPage,
+})
 
-const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const MI_TO_KM = 1.609344
@@ -47,7 +52,7 @@ const STATE_COLORS: Record<string, string> = {
 }
 
 function AnalyticsPage() {
-  const { battery, efficiency, mileage, states, timeline } = dashApi.useLoaderData()
+  const { battery, efficiency, mileage, states, timeline } = Route.useLoaderData()
   const tz = useDisplayTz()
   const { units: u, accent } = useDash()
 

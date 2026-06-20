@@ -11,9 +11,14 @@ import {
   backfillStandbyFlags,
   type PhantomCausesPayload,
 } from '../../functions/phantom-causes.functions'
+import { getPhantomDrain } from '../../functions/insights.functions'
 import type { PhantomCause } from '../../lib/analytics-vm'
 
 export const Route = createFileRoute('/dashboard/insights')({
+  // phantom-drain loaded lazily here (not in the every-route parent loader) to keep
+  // SSR CPU low; the rest of Insights reads the shared parent loader data.
+  loaderDeps: ({ search }) => ({ vin: (search as { vin?: string }).vin }),
+  loader: ({ deps }) => getPhantomDrain({ data: { vin: deps.vin } }),
   component: InsightsPage,
 })
 
@@ -28,7 +33,8 @@ function money(amount: number | null, currency: string, digits = 0): string {
 }
 
 function InsightsPage() {
-  const { overview, readiness, drives, charging, phantom, activeVin } = dashApi.useLoaderData()
+  const { overview, readiness, drives, charging, activeVin } = dashApi.useLoaderData()
+  const phantom = Route.useLoaderData()
   const { units: u, accent } = useDash()
 
   const ov = buildOverview(overview, readiness, drives, activeVin)
