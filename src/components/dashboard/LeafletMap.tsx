@@ -1,6 +1,16 @@
 import { useEffect, useRef } from 'react'
 import type * as Leaflet from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { cn } from '../../lib/utils'
+
+/**
+ * The base Leaflet container className: the load-bearing `evd-map` (+ `evd-map-dark`
+ * for the dark raster-tile filter, see styles.css) merged with whatever layout
+ * utilities a caller needs. Shared by LeafletMap + LifetimeMap.
+ */
+export function mapClass(isDark: boolean, ...extra: Array<string | false | undefined>) {
+  return cn('evd-map', isDark && 'evd-map-dark', ...extra)
+}
 
 /**
  * Free OpenStreetMap basemap (Leaflet + OSM raster tiles, no API key) showing a
@@ -104,8 +114,8 @@ export function LeafletMap({
   return (
     <div
       ref={containerRef}
-      className={isDark ? 'evd-map evd-map-dark' : 'evd-map'}
-      style={{ height, width: '100%', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border,rgba(0,0,0,0.07))' }}
+      className={mapClass(isDark, 'w-full rounded-2xl overflow-hidden border border-border')}
+      style={{ height }}
     />
   )
 }

@@ -1,11 +1,12 @@
-import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
-import { BatteryGlyph, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useDashboardData } from '../../lib/queries'
+import { AccentChip, BatteryGlyph, DashCardButton, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import type { IdleVM } from '../../lib/idles-vm'
 import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
-import { ICON, SECTION, hexToRgba } from '../../components/dashboard/theme'
+import { ICON, SECTION, THEME } from '../../components/dashboard/theme'
 import { buildIdles, fmtIdleDuration } from '../../lib/idles-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthHeader } from '../../components/dashboard/MonthFilter'
@@ -16,13 +17,10 @@ export const Route = createFileRoute('/dashboard/idles')({
   component: IdlesPage,
 })
 
-const dashApi = getRouteApi('/dashboard')
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.idles
 
 function IdlesPage() {
-  const { drives, overview, activeVin, charging, now } = dashApi.useLoaderData()
+  const { drives, overview, activeVin, charging, now } = useDashboardData()
   const { theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
@@ -46,8 +44,8 @@ function IdlesPage() {
   }
 
   return (
-    <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+    <div className="evd-view flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2.5 flex-wrap">
         <ViewTitle>Idles</ViewTitle>
         <SectionTabs section="idles" value="history" accent={COLOR} isDark={isDark} />
       </div>
@@ -90,38 +88,12 @@ function fmtKwh(kwh: number): string {
  */
 function IdleCard({ d, isDark, onClick }: { d: IdleVM; isDark: boolean; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        width: '100%',
-        textAlign: 'left',
-        cursor: 'pointer',
-        background: 'var(--card,#fff)',
-        border: '1px solid var(--border,rgba(0,0,0,0.07))',
-        borderRadius: 18,
-        padding: '15px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'border-color .2s ease, background .2s ease',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, marginBottom: 13 }}>
-        <span
-          style={{
-            width: 32,
-            height: 32,
-            flex: 'none',
-            borderRadius: 9,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: hexToRgba(COLOR, isDark ? 0.24 : 0.13),
-          }}
-        >
+    <DashCardButton onClick={onClick}>
+      <div className="flex items-center gap-2.5 min-w-0 mb-[13px]">
+        <AccentChip size={32} color={COLOR} isDark={isDark} round={false} className="rounded-[9px]">
           <Icon d={ICON.parking} size={17} color={COLOR} width={1.8} />
-        </span>
-        <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        </AccentChip>
+        <span className="text-[15px] font-semibold tracking-[-0.01em] text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
           {d.title}
         </span>
       </div>
@@ -129,19 +101,19 @@ function IdleCard({ d, isDark, onClick }: { d: IdleVM; isDark: boolean; onClick:
       <BatteryRow battery={d.startBattery} stamp={d.startStamp} connector />
       <BatteryRow battery={d.endBattery} stamp={d.endStamp} />
 
-      <div style={{ borderTop: '1px solid var(--border,rgba(0,0,0,0.07))', margin: '13px 0 0', paddingTop: 12, display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 16, rowGap: 6 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, letterSpacing: '-0.01em', color: TX }}>
-          <Icon d={ICON.clock} size={15} color={TD} />
+      <div className="border-t border-border mt-[13px] pt-3 flex items-center flex-wrap gap-x-4 gap-y-1.5">
+        <span className="flex items-center gap-1.5 text-[13px] font-bold tracking-[-0.01em] text-foreground">
+          <Icon d={ICON.clock} size={15} color={THEME.td} />
           {fmtIdleDuration(d.durMin)}
         </span>
         {d.batteryKwh != null && (
-          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: TD }}>
-            <Icon d={ICON.battery} size={15} color={TD} />
+          <span className="ml-auto flex items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground">
+            <Icon d={ICON.battery} size={15} color={THEME.td} />
             {fmtKwh(d.batteryKwh)} kWh
           </span>
         )}
       </div>
-    </button>
+    </DashCardButton>
   )
 }
 
@@ -158,16 +130,16 @@ function BatteryRow({
 }) {
   const meta = [battery != null ? `${battery}%` : null, stamp].filter(Boolean) as string[]
   return (
-    <div style={{ display: 'flex', gap: 12, minWidth: 0 }}>
-      <div style={{ width: 22, flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        {battery != null ? <BatteryGlyph pct={battery} color={TD} size={20} /> : <Icon d={ICON.battery} size={16} color={TD} />}
+    <div className="flex gap-3 min-w-0">
+      <div className="w-[22px] flex-none flex flex-col items-center">
+        {battery != null ? <BatteryGlyph pct={battery} color={THEME.td} size={20} /> : <Icon d={ICON.battery} size={16} color={THEME.td} />}
         {connector && (
-          <span style={{ flex: 1, marginTop: 4, marginBottom: -2, minHeight: 14, borderLeft: '2px dotted var(--border,rgba(0,0,0,0.2))' }} />
+          <span className="flex-1 mt-1 -mb-0.5 min-h-3.5 border-l-2 border-dotted border-border" />
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1, paddingBottom: connector ? 14 : 0 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: TD, minWidth: 0, whiteSpace: 'nowrap' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.join(' · ') || '—'}</span>
+      <div className={`flex flex-col min-w-0 flex-1${connector ? ' pb-3.5' : ''}`}>
+        <span className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground min-w-0 whitespace-nowrap">
+          <span className="overflow-hidden text-ellipsis">{meta.join(' · ') || '—'}</span>
         </span>
       </div>
     </div>

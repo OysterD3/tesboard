@@ -1,4 +1,5 @@
 /** Small presentational helpers shared across dashboard pages. */
+import { cn } from '../lib/utils'
 
 export function StatCard({
   label,
@@ -75,11 +76,10 @@ export function SourceBadge({ source, costSource }: { source: string; costSource
   const isBilled = costSource === 'tesla_billed' || costSource === 'quickcharge'
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-      style={{
-        background: source === 'supercharger' ? 'rgba(79,184,178,0.18)' : 'rgba(47,106,74,0.14)',
-        color: 'var(--sea-ink)',
-      }}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-[var(--sea-ink)]',
+        source === 'supercharger' ? 'bg-[rgba(79,184,178,0.18)]' : 'bg-[rgba(47,106,74,0.14)]',
+      )}
       title={
         isBilled
           ? costSource === 'quickcharge'

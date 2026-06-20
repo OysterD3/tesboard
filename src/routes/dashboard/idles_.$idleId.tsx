@@ -1,53 +1,28 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { Fragment } from 'react'
 import type { ReactNode } from 'react'
-import { BatteryGlyph, Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { BackHeader, BatteryGlyph, Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
 import { Chart, DASH, Divider, SectionCard, StatTile, TileRow, fmtMoney } from '../../components/dashboard/detail'
 import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION, hexToRgba } from '../../components/dashboard/theme'
-import { getIdleDetail, type IdleDetailPayload } from '../../functions/idle-detail.functions'
+import { cn } from '../../lib/utils'
+import { idleDetailQuery } from '../../lib/queries'
 import { buildIdleDetail, fmtIdleDuration } from '../../lib/idles-vm'
 import { fmtClockStamp } from '../../lib/drive-detail-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { distUnit, fmtDist, fmtTemp, tempUnit } from '../../lib/units'
 
-const EMPTY: IdleDetailPayload = {
-  found: false,
-  prevDriveId: 0,
-  vin: null,
-  startedAt: null,
-  endedAt: null,
-  place: null,
-  point: null,
-  startBattery: null,
-  endBattery: null,
-  startRangeMi: null,
-  endRangeMi: null,
-  effWhPerMi: null,
-  packKwh: null,
-  chargerKwh: null,
-  cost: null,
-  states: [],
-  samples: [],
-}
-
 export const Route = createFileRoute('/dashboard/idles_/$idleId')({
-  loader: async ({ params }): Promise<IdleDetailPayload> => {
-    const prevDriveId = Number(params.idleId)
-    if (!Number.isInteger(prevDriveId) || prevDriveId <= 0) return EMPTY
-    return getIdleDetail({ data: { prevDriveId } })
-  },
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(idleDetailQuery(Number(params.idleId))),
   component: IdleDetailPage,
 })
 
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.idles
-const BACK = 'M15 18l-6-6 6-6'
 
 function IdleDetailPage() {
-  const payload = Route.useLoaderData()
+  const payload = useSuspenseQuery(idleDetailQuery(Number(Route.useParams().idleId))).data
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
   const tz = useDisplayTz()
@@ -57,24 +32,8 @@ function IdleDetailPage() {
   const fmtX = (min: number) => fmtClockStamp(startMs + min * 60000, tz)
 
   return (
-    <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 0' }}>
-        <Link
-          to="/dashboard/idles"
-          search={(prev) => prev}
-          aria-label="Back to idles"
-          style={{ width: 40, height: 40, flex: 'none', borderRadius: '50%', border: '1px solid var(--border,rgba(0,0,0,0.08))', background: 'var(--card,#fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
-        >
-          <Icon d={BACK} size={20} color={TX} />
-        </Link>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: '-0.02em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {vm.title}
-          </span>
-          {vm.found && <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>{vm.subtitle}</span>}
-        </div>
-      </div>
+    <div className="evd-view flex flex-col gap-[14px]">
+      <BackHeader to="/dashboard/idles" title={vm.title} subtitle={vm.found ? vm.subtitle : undefined} />
 
       {!vm.found ? (
         <EmptyCard
@@ -85,22 +44,25 @@ function IdleDetailPage() {
         <>
           {/* Map */}
           {vm.hasMap && payload.point && (
-            <Card radius={22} style={{ padding: 14 }}>
+            <Card radius={22} className="p-[14px]">
               <LeafletMap points={[payload.point]} color={COLOR} isDark={isDark} mode="scatter" height={240} />
             </Card>
           )}
 
           {/* Session: parking icon + place, parked → drove off battery, duration / cost */}
-          <Card radius={22} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <span style={{ width: 38, height: 38, flex: 'none', borderRadius: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexToRgba(COLOR, isDark ? 0.24 : 0.13) }}>
+          <Card radius={22} className="flex flex-col gap-4 p-[18px]">
+            <div className="flex min-w-0 items-center gap-3">
+              <span
+                className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[11px]"
+                style={{ background: hexToRgba(COLOR, isDark ? 0.24 : 0.13) }}
+              >
                 <Icon d={ICON.parking} size={19} color={COLOR} width={1.9} />
               </span>
-              <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span className="truncate text-base font-bold tracking-[-0.01em] text-foreground">
                 {vm.place ?? 'Parked'}
               </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="flex flex-col">
               <IdleEnd label="Parked" stamp={vm.startStamp} battery={vm.batteryStart} isDark={isDark} connector />
               <IdleEnd label="Drove off" stamp={vm.endStamp} battery={vm.batteryEnd} isDark={isDark} />
             </div>
@@ -187,20 +149,23 @@ function IdleEnd({
   connector?: boolean
 }) {
   return (
-    <div style={{ display: 'flex', gap: 14, minWidth: 0 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none', paddingTop: 2 }}>
-        <span style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexToRgba(COLOR, isDark ? 0.24 : 0.13) }}>
+    <div className="flex min-w-0 gap-[14px]">
+      <div className="flex flex-none flex-col items-center pt-0.5">
+        <span
+          className="flex h-7 w-7 items-center justify-center rounded-full"
+          style={{ background: hexToRgba(COLOR, isDark ? 0.24 : 0.13) }}
+        >
           {battery != null ? <BatteryGlyph pct={battery} color={COLOR} size={18} /> : <Icon d={ICON.battery} size={15} color={COLOR} />}
         </span>
         {connector && (
-          <span style={{ flex: 1, marginTop: 5, marginBottom: -3, minHeight: 16, borderLeft: '2px dotted var(--border,rgba(0,0,0,0.2))' }} />
+          <span className="mt-[5px] mb-[-3px] min-h-4 flex-1 border-l-2 border-dotted border-border" />
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, paddingBottom: connector ? 16 : 0 }}>
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: TD, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className={cn('flex min-w-0 flex-col gap-0.5', connector && 'pb-4')}>
+        <span className="truncate text-[11.5px] font-semibold text-muted-foreground">
           {label}{stamp ? ` · ${stamp}` : ''}
         </span>
-        <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>
+        <span className="text-[17px] font-bold tracking-[-0.02em] text-foreground">
           {battery != null ? `${battery}%` : DASH}
         </span>
       </div>

@@ -1,38 +1,30 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { Fragment, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useRouter } from '@tanstack/react-router'
-import { useServerFn } from '@tanstack/react-start'
-import { BatteryGlyph, Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
+import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { BackHeader, BatteryGlyph, Card, EmptyCard, Icon } from '../../components/dashboard/primitives'
 import { Chart, DASH, Divider, SectionCard, StatTile, TileRow, fmtMoney } from '../../components/dashboard/detail'
 import { LeafletMap } from '../../components/dashboard/LeafletMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION, hexToRgba } from '../../components/dashboard/theme'
-import { getChargeSessionDetail, type ChargeDetailPayload } from '../../functions/charge-detail.functions'
+import { chargeDetailQuery } from '../../lib/queries'
 import { setChargeCost } from '../../functions/charging.functions'
 import { buildChargeDetail } from '../../lib/charge-detail-vm'
 import { fmtClockStamp } from '../../lib/drive-detail-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { distUnit, fmtDist, fmtTemp, tempUnit } from '../../lib/units'
-
-const EMPTY: ChargeDetailPayload = { charge: null, samples: [], point: null, odometerMi: null, sinceLastChargeMi: null }
+import { fmtDurMin } from '../../lib/format'
+import { cn } from '../../lib/utils'
 
 export const Route = createFileRoute('/dashboard/charging_/$chargeId')({
-  loader: async ({ params }): Promise<ChargeDetailPayload> => {
-    const sessionId = Number(params.chargeId)
-    if (!Number.isInteger(sessionId) || sessionId <= 0) return EMPTY
-    return getChargeSessionDetail({ data: { sessionId } })
-  },
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(chargeDetailQuery(Number(params.chargeId))),
   component: ChargeDetailPage,
 })
 
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.charging
-const BACK = 'M15 18l-6-6 6-6'
 
 function ChargeDetailPage() {
-  const payload = Route.useLoaderData()
+  const payload = useSuspenseQuery(chargeDetailQuery(Number(Route.useParams().chargeId))).data
   const { units: u, theme } = useDash()
   const isDark = theme === 'dark'
   const tz = useDisplayTz()
@@ -42,46 +34,34 @@ function ChargeDetailPage() {
   const fmtX = (min: number) => fmtClockStamp(startMs + min * 60000, tz)
 
   // Cost edit (moved here from the list, now that tapping a row opens this page).
-  const router = useRouter()
-  const saveCost = useServerFn(setChargeCost)
+  const queryClient = useQueryClient()
+  const saveCost = useMutation({
+    mutationFn: (vars: { id: number; cost: number | null; currency: string }) => setChargeCost({ data: vars }),
+    onSuccess: () => {
+      setEditing(false)
+      queryClient.invalidateQueries({ queryKey: ['chargeDetail'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+  const saving = saveCost.isPending
   const [editing, setEditing] = useState(false)
   const [costInput, setCostInput] = useState('')
-  const [saving, setSaving] = useState(false)
   function openEditor() {
     setCostInput(vm.cost ? String(vm.cost.amount) : '')
     setEditing(true)
   }
-  async function submitCost(value: number | null) {
+  function submitCost(value: number | null) {
     if (!payload.charge) return
-    setSaving(true)
-    try {
-      await saveCost({ data: { id: payload.charge.id, cost: value, currency: vm.cost?.currency ?? 'USD' } })
-      setEditing(false)
-      await router.invalidate()
-    } finally {
-      setSaving(false)
-    }
+    saveCost.mutate({ id: payload.charge.id, cost: value, currency: vm.cost?.currency ?? 'USD' })
   }
 
   return (
-    <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 0' }}>
-        <Link
-          to="/dashboard/charging"
-          search={(prev) => prev}
-          aria-label="Back to charging"
-          style={{ width: 40, height: 40, flex: 'none', borderRadius: '50%', border: '1px solid var(--border,rgba(0,0,0,0.08))', background: 'var(--card,#fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
-        >
-          <Icon d={BACK} size={20} color={TX} />
-        </Link>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: '-0.02em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {vm.title}
-          </span>
-          {vm.found && <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>{vm.subtitle} · {vm.typeLabel}</span>}
-        </div>
-      </div>
+    <div className="evd-view flex flex-col gap-[14px]">
+      <BackHeader
+        to="/dashboard/charging"
+        title={vm.title}
+        subtitle={vm.found ? `${vm.subtitle} · ${vm.typeLabel}` : undefined}
+      />
 
       {!vm.found ? (
         <EmptyCard
@@ -92,31 +72,34 @@ function ChargeDetailPage() {
         <>
           {/* Map */}
           {vm.hasMap && payload.point && (
-            <Card radius={22} style={{ padding: 14 }}>
+            <Card radius={22} className="p-[14px]">
               <LeafletMap points={[payload.point]} color={COLOR} isDark={isDark} mode="scatter" height={240} />
             </Card>
           )}
 
           {/* Session: charge icon + place, From → To battery, cost / odometer / since / duration */}
-          <Card radius={22} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <span style={{ width: 38, height: 38, flex: 'none', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexToRgba(COLOR, isDark ? 0.22 : 0.12) }}>
+          <Card radius={22} className="flex flex-col gap-4 p-[18px]">
+            <div className="flex min-w-0 items-center gap-3">
+              <span
+                className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-full"
+                style={{ background: hexToRgba(COLOR, isDark ? 0.22 : 0.12) }}
+              >
                 <Icon d={ICON.charging} size={19} color={COLOR} fill={COLOR} stroke={false} />
               </span>
-              <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span className="truncate text-base font-bold tracking-[-0.01em] text-foreground">
                 {vm.place ?? 'Charge session'}
               </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="flex flex-col">
               <ChargeEnd stamp={vm.startStamp} battery={vm.batteryStart} isDark={isDark} connector />
               <ChargeEnd stamp={vm.endStamp} battery={vm.batteryEnd} isDark={isDark} />
             </div>
             <Divider />
             <TileRow>
-              <button type="button" onClick={openEditor} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', minWidth: 0 }} title="Tap to edit cost">
+              <button type="button" onClick={openEditor} className="min-w-0 cursor-pointer border-none bg-transparent p-0 text-left" title="Tap to edit cost">
                 <StatTile icon={ICON.charging} fill label={vm.costSource === 'manual' ? 'Electric cost · edited' : 'Electric cost · tap'} value={fmtMoney(vm.cost)} accent={COLOR} />
               </button>
-              <StatTile icon={ICON.clock} label="Duration" value={fmtDuration(vm.durMin)} accent={COLOR} />
+              <StatTile icon={ICON.clock} label="Duration" value={fmtDurMin(vm.durMin)} accent={COLOR} />
             </TileRow>
             {(vm.odometerKm != null || vm.sinceLastChargeKm != null) && (
               <Tiles>
@@ -126,8 +109,8 @@ function ChargeDetailPage() {
             )}
 
             {editing && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 14, borderTop: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: TD }}>{vm.cost?.currency ?? 'USD'}</span>
+              <div className="flex items-center gap-2 border-t border-border pt-[14px]">
+                <span className="text-[13px] font-semibold text-muted-foreground">{vm.cost?.currency ?? 'USD'}</span>
                 <input
                   type="number"
                   inputMode="decimal"
@@ -137,17 +120,23 @@ function ChargeDetailPage() {
                   onChange={(e) => setCostInput(e.target.value)}
                   autoFocus
                   placeholder="0.00"
-                  style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: TX, background: 'var(--track,#f7f7f9)', border: '1px solid var(--border,rgba(0,0,0,0.1))', borderRadius: 10, padding: '8px 12px' }}
+                  className="min-w-0 flex-1 rounded-[10px] border border-border bg-secondary px-3 py-2 text-[15px] font-semibold text-foreground"
                 />
-                <button type="button" disabled={saving || costInput.trim() === '' || !(Number(costInput) >= 0)} onClick={() => submitCost(Number(costInput))} style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: COLOR, border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+                <button
+                  type="button"
+                  disabled={saving || costInput.trim() === '' || !(Number(costInput) >= 0)}
+                  onClick={() => submitCost(Number(costInput))}
+                  style={{ background: COLOR }}
+                  className={cn('rounded-[10px] border-none px-[14px] py-2 text-[13px] font-semibold text-white', saving ? 'cursor-default opacity-60' : 'cursor-pointer opacity-100')}
+                >
                   Save
                 </button>
                 {vm.costSource === 'manual' && (
-                  <button type="button" disabled={saving} onClick={() => submitCost(null)} title="Revert to automatic costing" style={{ fontSize: 13, fontWeight: 600, color: TD, background: 'var(--track,#f7f7f9)', border: '1px solid var(--border,rgba(0,0,0,0.1))', borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}>
+                  <button type="button" disabled={saving} onClick={() => submitCost(null)} title="Revert to automatic costing" className="cursor-pointer rounded-[10px] border border-border bg-secondary px-3 py-2 text-[13px] font-semibold text-muted-foreground">
                     Auto
                   </button>
                 )}
-                <button type="button" disabled={saving} onClick={() => setEditing(false)} style={{ fontSize: 13, fontWeight: 600, color: TD, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 4px' }}>
+                <button type="button" disabled={saving} onClick={() => setEditing(false)} className="cursor-pointer border-none bg-transparent px-1 py-2 text-[13px] font-semibold text-muted-foreground">
                   Cancel
                 </button>
               </div>
@@ -256,15 +245,6 @@ function Tiles({ children }: { children: ReactNode }) {
   return items.length === 1 ? <>{keyed}</> : <TileRow>{keyed}</TileRow>
 }
 
-/** "11m" / "1h 4m" — charge duration label. */
-function fmtDuration(min: number): string {
-  const m = Math.max(0, Math.round(min))
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  const rem = m % 60
-  return rem ? `${h}h ${rem}m` : `${h}h`
-}
-
 /** One end of the charge: pin + timestamp over a bold SOC%. The start endpoint
  *  draws a dotted connector down toward the end pin. */
 function ChargeEnd({
@@ -279,20 +259,23 @@ function ChargeEnd({
   connector?: boolean
 }) {
   return (
-    <div style={{ display: 'flex', gap: 14, minWidth: 0 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none', paddingTop: 2 }}>
-        <span style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexToRgba(COLOR, isDark ? 0.22 : 0.12) }}>
+    <div className="flex min-w-0 gap-[14px]">
+      <div className="flex flex-none flex-col items-center pt-0.5">
+        <span
+          className="flex h-7 w-7 items-center justify-center rounded-full"
+          style={{ background: hexToRgba(COLOR, isDark ? 0.22 : 0.12) }}
+        >
           {battery != null ? <BatteryGlyph pct={battery} color={COLOR} size={18} /> : <Icon d={ICON.battery} size={15} color={COLOR} />}
         </span>
         {connector && (
-          <span style={{ flex: 1, marginTop: 5, marginBottom: -3, minHeight: 16, borderLeft: '2px dotted var(--border,rgba(0,0,0,0.2))' }} />
+          <span className="mt-[5px] mb-[-3px] min-h-4 flex-1 border-l-2 border-dotted border-border" />
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, paddingBottom: connector ? 16 : 0 }}>
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: TD, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className={cn('flex min-w-0 flex-col gap-0.5', connector && 'pb-4')}>
+        <span className="truncate text-[11.5px] font-semibold text-muted-foreground">
           {stamp || '—'}
         </span>
-        <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>
+        <span className="text-[17px] font-bold tracking-[-0.02em] text-foreground">
           {battery != null ? `${battery}%` : DASH}
         </span>
       </div>

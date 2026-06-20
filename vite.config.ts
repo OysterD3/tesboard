@@ -15,7 +15,12 @@ const config = defineConfig({
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     devtools(),
     tailwindcss(),
-    tanstackStart(),
+    // SPA mode: pages render on the CLIENT (no SSR), while the server still hosts
+    // server functions + the /api/* OAuth/cron routes + the cron `scheduled()`
+    // handler in worker.ts. The build prerenders the root shell to /_shell.html
+    // and rewrites 404s to it. This removes the SSR hydration-mismatch class of
+    // bugs and offloads render CPU from the Worker.
+    tanstackStart({ spa: { enabled: true } }),
     viteReact(),
   ],
 })

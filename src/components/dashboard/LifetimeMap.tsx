@@ -2,6 +2,9 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import type * as Leaflet from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
+import { cn } from '../../lib/utils'
+import { mapClass } from './LeafletMap'
+import { clusterHtml, dotHtml, clusterSizeFor } from './LifetimeMapMarkers'
 
 export interface MapPoint {
   lat: number
@@ -85,9 +88,8 @@ export function LifetimeMap({
       // map never navigates away — drilling into a session is done from the list.
       let clusters: Leaflet.MarkerClusterGroup | null = null
       if (points.length > 0) {
-        const sizeFor = (n: number) => (n < 10 ? 34 : n < 100 ? 40 : 46)
         const badge = (n: number) => {
-          const size = sizeFor(n)
+          const size = clusterSizeFor(n)
           return L.divIcon({
             html: clusterHtml(n, size, markerColor),
             className: '',
@@ -154,14 +156,13 @@ export function LifetimeMap({
   return (
     <div
       ref={containerRef}
-      className={isDark ? 'evd-map evd-map-dark' : 'evd-map'}
-      style={
-        fill
-          ? // zIndex:0 makes the map its own stacking context so Leaflet's internal
-            // panes (z-index 200–700) can't paint over the floating MapOverlay controls.
-            { position: 'absolute', inset: 0, zIndex: 0 }
-          : { height, width: '100%', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border,rgba(0,0,0,0.07))' }
-      }
+      // fill: z-0 makes the map its own stacking context so Leaflet's internal panes
+      // (z-index 200–700) can't paint over the floating MapOverlay controls.
+      className={mapClass(
+        isDark,
+        fill ? 'absolute inset-0 z-0' : 'w-full rounded-2xl overflow-hidden border border-border',
+      )}
+      style={fill ? undefined : { height }}
     />
   )
 }
@@ -190,44 +191,22 @@ export function MapOverlay({
   caption?: ReactNode
   children: ReactNode
 }) {
-  const floatShadow = 'drop-shadow(0 2px 8px rgba(0,0,0,0.18))'
+  // drop-shadow on the floating controls; arbitrary util shared by all three wrappers.
+  const floatShadow = '[filter:drop-shadow(0_2px_8px_rgba(0,0,0,0.18))]'
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 10, background: 'var(--bg,#f5f5f7)' }}>
+    <div className="fixed inset-0 z-10 bg-background">
       {children}
-      <div
-        style={{
-          position: 'absolute',
-          top: 'calc(env(safe-area-inset-top, 0px) + 14px)',
-          left: 14,
-          right: 14,
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 8,
-          pointerEvents: 'none',
-          zIndex: 2,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+      <div className="absolute left-3.5 right-3.5 top-[calc(env(safe-area-inset-top,0px)+14px)] z-[2] flex items-start justify-between gap-2 pointer-events-none">
+        <div className="flex items-start gap-2 min-w-0">
           {onBack && (
             <button
               type="button"
               onClick={onBack}
               aria-label="Back"
-              style={{
-                pointerEvents: 'auto',
-                flex: 'none',
-                width: 38,
-                height: 38,
-                borderRadius: '50%',
-                border: '1px solid var(--border,rgba(0,0,0,0.08))',
-                background: 'var(--card,#fff)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                filter: floatShadow,
-              }}
+              className={cn(
+                'pointer-events-auto flex-none size-[38px] rounded-full border border-border bg-card flex items-center justify-center cursor-pointer',
+                floatShadow,
+              )}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tx,#1d1d1f)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
@@ -235,43 +214,16 @@ export function MapOverlay({
             </button>
           )}
           {topLeft != null && (
-            <div style={{ pointerEvents: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', filter: floatShadow }}>{topLeft}</div>
+            <div className={cn('pointer-events-auto flex gap-2 flex-wrap', floatShadow)}>{topLeft}</div>
           )}
         </div>
         {topRight != null && (
-          <div style={{ pointerEvents: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', filter: floatShadow }}>
-            {topRight}
-          </div>
+          <div className={cn('pointer-events-auto flex gap-2 flex-wrap justify-end', floatShadow)}>{topRight}</div>
         )}
       </div>
       {caption != null && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 14,
-            right: 14,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)',
-            display: 'flex',
-            justifyContent: 'center',
-            pointerEvents: 'none',
-            zIndex: 2,
-          }}
-        >
-          <div
-            style={{
-              pointerEvents: 'auto',
-              maxWidth: '100%',
-              background: 'var(--card,#fff)',
-              border: '1px solid var(--border,rgba(0,0,0,0.07))',
-              borderRadius: 12,
-              boxShadow: '0 2px 10px rgba(0,0,0,0.12)',
-              padding: '7px 12px',
-              fontSize: 10.5,
-              fontWeight: 500,
-              color: 'var(--td,#86868b)',
-              textAlign: 'center',
-            }}
-          >
+        <div className="absolute left-3.5 right-3.5 bottom-[calc(env(safe-area-inset-bottom,0px)+92px)] z-[2] flex justify-center pointer-events-none">
+          <div className="pointer-events-auto max-w-full bg-card border border-border rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.12)] px-3 py-[7px] text-[10.5px] font-medium text-muted-foreground text-center">
             {caption}
           </div>
         </div>
@@ -283,27 +235,8 @@ export function MapOverlay({
 /** Centered loading / empty message that fills a `MapOverlay` when there's no map to draw. */
 export function MapMessage({ children }: { children: ReactNode }) {
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-        padding: 24,
-        background: 'var(--track,#f0f0f3)',
-      }}
-    >
-      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--td,#86868b)' }}>{children}</span>
+    <div className="absolute inset-0 flex items-center justify-center text-center p-6 bg-secondary">
+      <span className="text-[13px] font-medium text-muted-foreground">{children}</span>
     </div>
   )
-}
-
-function clusterHtml(n: number, size: number, color: string): string {
-  return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;font-family:'Geist',system-ui,sans-serif;">${n}</div>`
-}
-
-function dotHtml(color: string): string {
-  return `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);"></div>`
 }

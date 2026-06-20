@@ -1,13 +1,14 @@
-import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { BatteryGlyph, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { useDashboardData } from '../../lib/queries'
+import { BatteryGlyph, DashCardButton, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
 import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
-import { ICON, SECTION } from '../../components/dashboard/theme'
+import { ICON, SECTION, THEME } from '../../components/dashboard/theme'
 import { buildDrives } from '../../lib/dashboard-vm'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthHeader } from '../../components/dashboard/MonthFilter'
@@ -19,13 +20,10 @@ export const Route = createFileRoute('/dashboard/drives')({
   component: DrivesPage,
 })
 
-const dashApi = getRouteApi('/dashboard')
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
 
 function DrivesPage() {
-  const { drives, charging, now } = dashApi.useLoaderData()
+  const { drives, charging, now } = useDashboardData()
   const { units: u, theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
@@ -46,8 +44,8 @@ function DrivesPage() {
   }
 
   return (
-    <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+    <div className="evd-view flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2.5 flex-wrap">
         <ViewTitle>Drives</ViewTitle>
         <SectionTabs section="drives" value="history" accent={COLOR} isDark={isDark} />
       </div>
@@ -87,24 +85,9 @@ function DrivesPage() {
 function DriveCard({ d, u, onClick }: { d: DriveVM; u: Units; onClick: () => void }) {
   const inProgress = d.endStamp == null
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        width: '100%',
-        textAlign: 'left',
-        cursor: 'pointer',
-        background: 'var(--card,#fff)',
-        border: '1px solid var(--border,rgba(0,0,0,0.07))',
-        borderRadius: 18,
-        padding: '15px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'border-color .2s ease, background .2s ease',
-      }}
-    >
+    <DashCardButton onClick={onClick}>
       <Endpoint
-        accent={TD}
+        accent={THEME.td}
         place={d.startPlace ?? 'Unknown location'}
         battery={d.startBattery}
         stamp={d.startStamp}
@@ -117,22 +100,22 @@ function DriveCard({ d, u, onClick }: { d: DriveVM; u: Units; onClick: () => voi
         stamp={d.endStamp}
       />
 
-      <div style={{ borderTop: '1px solid var(--border,rgba(0,0,0,0.07))', margin: '13px 0 0', paddingTop: 12, display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 16, rowGap: 6 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, letterSpacing: '-0.01em', color: TX }}>
-          <Icon d={ICON.road} size={15} color={TD} />
+      <div className="border-t border-border mt-[13px] pt-3 flex items-center flex-wrap gap-x-4 gap-y-1.5">
+        <span className="flex items-center gap-1.5 text-[13px] font-bold tracking-[-0.01em] text-foreground">
+          <Icon d={ICON.road} size={15} color={THEME.td} />
           {fmtDist(u, d.distKm, 1)} {distUnit(u)}
         </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: TD }}>
-          <Icon d={ICON.clock} size={15} color={TD} />
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground">
+          <Icon d={ICON.clock} size={15} color={THEME.td} />
           {d.durMin} min
         </span>
         {d.effWhKm != null && (
-          <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: TD }}>
+          <span className="ml-auto text-[12.5px] font-semibold text-muted-foreground">
             {effFromWhKm(u, d.effWhKm)} {effSuffix(u)}
           </span>
         )}
       </div>
-    </button>
+    </DashCardButton>
   )
 }
 
@@ -156,21 +139,25 @@ function Endpoint({
     // Default align-items (stretch) lets the icon column match the (taller) text
     // column's height, so the flex:1 dotted rail spans the full gap to the next
     // pin — the same continuous-rail pattern the drive-detail Endpoint uses.
-    <div style={{ display: 'flex', gap: 12, minWidth: 0 }}>
-      <div style={{ width: 22, flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <div className="flex gap-3 min-w-0">
+      <div className="w-[22px] flex-none flex flex-col items-center">
         <Icon d={ICON.pin} size={20} color={accent} />
         {connector && (
-          <span style={{ flex: 1, marginTop: 4, marginBottom: -2, minHeight: 16, borderLeft: '2px dotted var(--border,rgba(0,0,0,0.2))' }} />
+          <span className="flex-1 mt-1 -mb-0.5 min-h-4 border-l-2 border-dotted border-border" />
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1, paddingBottom: connector ? 16 : 0 }}>
-        <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className={`flex flex-col gap-1 min-w-0 flex-1${connector ? ' pb-4' : ''}`}>
+        <span className="text-[15px] font-semibold tracking-[-0.01em] text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
           {place}
         </span>
         {meta.length > 0 && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: TD, minWidth: 0, whiteSpace: 'nowrap' }}>
-            {battery != null && <span style={{ flex: 'none', display: 'inline-flex' }}><BatteryGlyph pct={battery} color={TD} size={18} /></span>}
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.join(' · ')}</span>
+          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground min-w-0 whitespace-nowrap">
+            {battery != null && (
+              <span className="flex-none inline-flex">
+                <BatteryGlyph pct={battery} color={THEME.td} size={18} />
+              </span>
+            )}
+            <span className="overflow-hidden text-ellipsis">{meta.join(' · ')}</span>
           </span>
         )}
       </div>

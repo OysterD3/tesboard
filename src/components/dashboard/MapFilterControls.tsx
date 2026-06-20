@@ -4,9 +4,9 @@ import type { RangeState } from '../../lib/range-filter'
 
 /**
  * Stacked controls floated at the top-left of a full-screen Map overlay: the
- * History / Map / Insights toggle above the date-range chips. The chip row is
- * width-bounded (so it scrolls horizontally rather than spilling across the map)
- * and clears the overlay's back button.
+ * History / Map / Insights toggle above the date-range dropdown. The range
+ * filter is a compact Select pill (its popover is portaled + viewport-bounded by
+ * Radix, so it never spills off-screen) and clears the overlay's back button.
  */
 export function MapFilterControls({
   section,
@@ -26,18 +26,16 @@ export function MapFilterControls({
   lastChargeMs?: number | null
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'auto' }}>
+    <div className="flex flex-col gap-2 pointer-events-auto">
       <SectionTabs section={section} value="map" accent={accent} isDark={isDark} />
-      <div style={{ width: 'calc(100vw - 96px)', maxWidth: 420 }}>
-        <RangeFilter
-          state={range}
-          onChange={onRangeChange}
-          accent={accent}
-          isDark={isDark}
-          nowMs={nowMs}
-          lastChargeMs={lastChargeMs}
-        />
-      </div>
+      <RangeFilter
+        state={range}
+        onChange={onRangeChange}
+        accent={accent}
+        isDark={isDark}
+        nowMs={nowMs}
+        lastChargeMs={lastChargeMs}
+      />
     </div>
   )
 }

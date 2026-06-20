@@ -8,9 +8,9 @@
   "scripts": {
     "dev": "dotenv -e .dev.vars -- vite dev --port 3001",
     "generate-routes": "tsr generate",
-    "build": "vite build",
+    "build": "dotenv -e .dev.vars -- vite build",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler deploy",
+    "deploy": "dotenv -e .dev.vars -- vite build && wrangler deploy",
     "cf-typegen": "wrangler types",
     "user:create": "node scripts/create-user.mjs",
     "tesla:register": "node scripts/tesla-register.mjs",
@@ -23,10 +23,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@radix-ui/react-select": "^2.3.1",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
+    "@tanstack/react-query": "^5.101.0",
+    "@tanstack/react-query-devtools": "^5.101.0",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-router-ssr-query": "latest",

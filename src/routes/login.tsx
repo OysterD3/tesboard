@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { getSupabaseBrowser } from '../lib/supabase-browser'
 import { getAuthStatus } from '../functions/account.functions'
 import { DEFAULT_ACCENT, type ThemeName, themeVars } from '../components/dashboard/theme'
+import { cn } from '../lib/utils'
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async () => {
@@ -49,58 +50,32 @@ function LoginPage() {
     }
   }
 
-  const TX = 'var(--tx,#1d1d1f)'
-  const TD = 'var(--td,#86868b)'
-  const inputStyle: React.CSSProperties = {
-    marginTop: 6,
-    width: '100%',
-    borderRadius: 12,
-    border: '1px solid var(--border,rgba(0,0,0,0.07))',
-    background: 'var(--track,#f0f0f3)',
-    padding: '11px 13px',
-    fontSize: 15,
-    color: TX,
-    outline: 'none',
-  }
+  const inputCls =
+    'mt-1.5 w-full rounded-xl border border-border bg-secondary px-[13px] py-[11px] text-[15px] text-foreground outline-none focus:border-ring'
 
   return (
     <div
       suppressHydrationWarning
-      style={{
-        ...themeVars(theme, ACCENT),
-        background: 'var(--bg,#f5f5f7)',
-        minHeight: '100vh',
-        width: '100%',
-        color: TX,
-        fontFamily: "'Geist', system-ui, -apple-system, sans-serif",
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px 20px',
-      }}
+      // The themeVars() spread MUST stay inline — it injects the runtime --bg/
+      // --card/--tx/--td/--border/--ac vars this page's bridge classes resolve
+      // against (this page is outside DashboardProvider). Geist is a one-off here.
+      style={{ ...themeVars(theme, ACCENT), fontFamily: "'Geist', system-ui, -apple-system, sans-serif" }}
+      className="flex min-h-screen w-full items-center justify-center bg-background px-5 py-6 text-foreground"
     >
-      <div style={{ width: '100%', maxWidth: 380 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 22, justifyContent: 'center' }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: ACCENT, flex: 'none' }} />
-          <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em', color: TD }}>tesboard</span>
+      <div className="w-full max-w-[380px]">
+        <div className="mb-[22px] flex items-center justify-center gap-[9px]">
+          <span className="size-2.5 flex-none rounded-full bg-primary" />
+          <span className="text-sm font-semibold tracking-[-0.01em] text-muted-foreground">tesboard</span>
         </div>
 
-        <div
-          style={{
-            background: 'var(--card,#fff)',
-            border: '1px solid var(--border,rgba(0,0,0,0.07))',
-            borderRadius: 24,
-            boxShadow: 'var(--shadow)',
-            padding: '28px 24px 26px',
-          }}
-        >
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>Sign in</h1>
-          <p style={{ margin: '6px 0 22px', fontSize: 14, fontWeight: 500, color: TD }}>
+        <div className="rounded-3xl border border-border bg-card px-6 pt-7 pb-[26px] shadow-[var(--shadow)]">
+          <h1 className="m-0 text-2xl font-bold tracking-[-0.02em] text-foreground">Sign in</h1>
+          <p className="mt-1.5 mb-[22px] text-sm font-medium text-muted-foreground">
             Your personal Tesla dashboard.
           </p>
 
-          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: TD }}>
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <label className="text-[13px] font-semibold text-muted-foreground">
               Email
               <input
                 type="email"
@@ -108,12 +83,10 @@ function LoginPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                style={inputStyle}
-                onFocus={(e) => (e.currentTarget.style.borderColor = ACCENT)}
-                onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--border,rgba(0,0,0,0.07))')}
+                className={inputCls}
               />
             </label>
-            <label style={{ fontSize: 13, fontWeight: 600, color: TD }}>
+            <label className="text-[13px] font-semibold text-muted-foreground">
               Password
               <input
                 type="password"
@@ -121,32 +94,21 @@ function LoginPage() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                style={inputStyle}
-                onFocus={(e) => (e.currentTarget.style.borderColor = ACCENT)}
-                onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--border,rgba(0,0,0,0.07))')}
+                className={inputCls}
               />
             </label>
 
             {error && (
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: '#f43f5e', overflowWrap: 'anywhere' }}>{error}</p>
+              <p className="m-0 text-[13px] font-medium text-destructive [overflow-wrap:anywhere]">{error}</p>
             )}
 
             <button
               type="submit"
               disabled={busy}
-              style={{
-                marginTop: 4,
-                border: 'none',
-                cursor: busy ? 'default' : 'pointer',
-                borderRadius: 30,
-                background: ACCENT,
-                color: '#fff',
-                fontSize: 15,
-                fontWeight: 600,
-                padding: '12px 18px',
-                opacity: busy ? 0.6 : 1,
-                transition: 'opacity 120ms',
-              }}
+              className={cn(
+                'mt-1 rounded-[30px] border-none bg-primary px-[18px] py-3 text-[15px] font-semibold text-primary-foreground transition-opacity duration-[120ms]',
+                busy ? 'cursor-default opacity-60' : 'cursor-pointer opacity-100',
+              )}
             >
               {busy ? 'Signing in…' : 'Sign in'}
             </button>

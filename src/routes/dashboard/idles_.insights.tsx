@@ -1,11 +1,14 @@
-import { createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { Card, EmptyCard, HoverBars, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { useDashboardData } from '../../lib/queries'
+import { Card, EmptyCard, HoverBars, Icon, SectionLabel, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { ICON, SECTION } from '../../components/dashboard/theme'
+import { Button } from '../../components/ui/button'
+import { cn } from '../../lib/utils'
 import { lastChargeMsOf, rangeLabel, rangeToIso, resolveRange } from '../../lib/range-filter'
 import { distUnit, fmtDay, fmtDist } from '../../lib/units'
 import {
@@ -20,9 +23,6 @@ export const Route = createFileRoute('/dashboard/idles_/insights')({
   component: IdlesInsightsPage,
 })
 
-const dashApi = getRouteApi('/dashboard')
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.idles
 const KM_PER_MI = 1.60934
 const r1 = (n: number) => Math.round(n * 10) / 10
@@ -34,7 +34,7 @@ const r1 = (n: number) => Math.round(n * 10) / 10
  * time" hits the server's per-day SQL aggregation rather than a giant row scan.
  */
 function IdlesInsightsPage() {
-  const { activeVin, charging, now } = dashApi.useLoaderData()
+  const { activeVin, charging, now } = useDashboardData()
   const { units: u, theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
 
@@ -71,8 +71,8 @@ function IdlesInsightsPage() {
       : null
 
   return (
-    <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+    <div className="evd-view flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2.5 flex-wrap">
         <ViewTitle>Idles</ViewTitle>
         <SectionTabs section="idles" value="insights" accent={COLOR} isDark={isDark} />
       </div>
@@ -81,26 +81,26 @@ function IdlesInsightsPage() {
 
       {/* Phantom miles (derived from snapshots) */}
       {loading && phantom == null ? (
-        <Card radius={22} style={{ padding: 20 }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Measuring standby loss…</span>
+        <Card radius={22} className="p-5">
+          <SectionLabel>Measuring standby loss…</SectionLabel>
         </Card>
       ) : pv ? (
-        <Card radius={22} style={{ padding: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Standby loss · phantom {distUnit(u)}</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>{fmtDist(u, pv.lostKm, 1)}</span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: TD }}>{distUnit(u)} lost</span>
+        <Card radius={22} className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-1.5">
+              <SectionLabel>Standby loss · phantom {distUnit(u)}</SectionLabel>
+              <div className="flex items-baseline gap-[5px]">
+                <span className="text-[30px] font-bold tracking-[-0.02em] text-foreground">{fmtDist(u, pv.lostKm, 1)}</span>
+                <span className="text-sm font-semibold text-muted-foreground">{distUnit(u)} lost</span>
               </div>
-              <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>Over {pv.days} days parked · ~{fmtDist(u, pv.perDayKm, 1)} {distUnit(u)}/day</span>
+              <span className="text-xs font-medium text-muted-foreground">Over {pv.days} days parked · ~{fmtDist(u, pv.perDayKm, 1)} {distUnit(u)}/day</span>
             </div>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(244,63,94,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+            <div className="w-12 h-12 rounded-full bg-[rgba(244,63,94,0.13)] flex items-center justify-center flex-none">
               <Icon d={ICON.sparkles} size={22} color="#f43f5e" />
             </div>
           </div>
           {pv.series.length >= 2 && (
-            <div style={{ marginTop: 18 }}>
+            <div className="mt-[18px]">
               {(() => {
                 const series = pv.series.slice(-30)
                 const max = Math.max(...series.map((d) => d.lostKm), 0.1)
@@ -113,15 +113,15 @@ function IdlesInsightsPage() {
                       heightPct: Math.max(6, (d.lostKm / max) * 100),
                       tip: (
                         <>
-                          <span style={{ color: '#f43f5e' }}>{fmtDist(u, d.lostKm, 1)} {distUnit(u)}</span>
-                          <span style={{ color: TD, fontWeight: 500 }}> · {fmtDay(d.date)}</span>
+                          <span className="text-destructive">{fmtDist(u, d.lostKm, 1)} {distUnit(u)}</span>
+                          <span className="font-medium text-muted-foreground"> · {fmtDay(d.date)}</span>
                         </>
                       ),
                     }))}
                   />
                 )
               })()}
-              <span style={{ fontSize: 11, fontWeight: 500, color: TD, marginTop: 7, display: 'block' }}>Daily loss · last {Math.min(30, pv.series.length)} days with drain</span>
+              <span className="block text-[11px] font-medium text-muted-foreground mt-[7px]">Daily loss · last {Math.min(30, pv.series.length)} days with drain</span>
             </div>
           )}
         </Card>
@@ -197,44 +197,49 @@ function PhantomCausesCard({
   if (!data || !data.available || !data.hasData) return null
 
   return (
-    <Card radius={22} style={{ padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>What drained it · {rangeText}</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: TD }}>{fmtDist(u, data.totalMi * KM_PER_MI, 1)} {distUnit(u)}</span>
+    <Card radius={22} className="p-5">
+      <div className="flex items-center justify-between">
+        <SectionLabel>What drained it · {rangeText}</SectionLabel>
+        <span className="text-xs font-semibold text-muted-foreground">{fmtDist(u, data.totalMi * KM_PER_MI, 1)} {distUnit(u)}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, marginTop: 16 }}>
+      <div className="flex flex-col gap-[11px] mt-4">
         {data.slices.map((s) => {
           const meta = CAUSE_META[s.cause]
           return (
             <div key={s.cause}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: TX }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color }} />
+              <div className="flex justify-between mb-[5px]">
+                <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-foreground">
+                  <span className="w-2 h-2 rounded-full" style={{ background: meta.color }} />
                   {meta.label}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>{fmtDist(u, s.lostMi * KM_PER_MI, 1)} {distUnit(u)} · {s.pct}%</span>
+                <span className="text-xs font-medium text-muted-foreground">{fmtDist(u, s.lostMi * KM_PER_MI, 1)} {distUnit(u)} · {s.pct}%</span>
               </div>
-              <div style={{ height: 8, borderRadius: 5, background: 'var(--track,#f0f0f3)', overflow: 'hidden' }}>
-                <div style={{ width: `${Math.max(2, s.pct)}%`, height: '100%', background: meta.color }} />
+              <div className="h-2 rounded-[5px] bg-secondary overflow-hidden">
+                <div className="h-full" style={{ width: `${Math.max(2, s.pct)}%`, background: meta.color }} />
               </div>
             </div>
           )
         })}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, gap: 12 }}>
-        <span style={{ fontSize: 11, fontWeight: 500, color: TD, lineHeight: 1.4 }}>
+      <div className="flex items-center justify-between mt-3.5 gap-3">
+        <span className="text-[11px] font-medium text-muted-foreground leading-[1.4]">
           Attributed by what was active each interval — a heuristic, not metered.
         </span>
         {data.unattributed > 0 && (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={backfill}
             disabled={busy}
             title="Fill cause flags for older snapshots from stored data"
-            style={{ flex: 'none', cursor: busy ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, color: busy ? TD : '#f43f5e', background: 'transparent', border: `1px solid ${busy ? 'var(--border,rgba(0,0,0,0.08))' : '#f43f5e'}`, borderRadius: 30, padding: '6px 12px', whiteSpace: 'nowrap' }}
+            className={cn(
+              'flex-none rounded-full whitespace-nowrap text-xs font-semibold',
+              busy ? 'text-muted-foreground' : 'text-destructive border-destructive',
+            )}
           >
             {busy ? 'Backfilling…' : 'Improve history'}
-          </button>
+          </Button>
         )}
       </div>
     </Card>

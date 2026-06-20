@@ -32,6 +32,31 @@ export const ACCENT_PALETTE = [
 
 export const DEFAULT_ACCENT = '#3b82f6'
 
+/**
+ * Per-vehicle-state colors for the analytics time-in-state bars/timeline.
+ * (Previously inlined in analytics.tsx.) These are fixed semantic tokens, not
+ * the runtime --ac accent.
+ */
+export const STATE_COLORS: Record<string, string> = {
+  online: '#34c759',
+  asleep: '#8b5cf6',
+  offline: '#86868b',
+  driving: '#6366f1',
+  charging: '#f59e0b',
+}
+
+/**
+ * Raw runtime theme-var STRINGS for the residual SVG/string-prop usages that
+ * can't take a Tailwind class — e.g. `<Icon color={THEME.td} />` or an SVG
+ * `fill`/`stroke`. For real CSS, prefer the bridge classes
+ * (text-muted-foreground / text-foreground); only use these where a plain
+ * string is required. Mirrors the `const TD`/`const TX` consts these replace.
+ */
+export const THEME = {
+  td: 'var(--td,#86868b)',
+  tx: 'var(--tx,#1d1d1f)',
+} as const
+
 export function round(n: number, d = 0): number {
   const f = 10 ** d
   return Math.round(n * f) / f
@@ -101,6 +126,7 @@ export const ICON = {
   leaf: 'M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z M2 21c0-3 1.85-5.36 5.08-6',
   arrow: 'M5 12h14 M13 6l6 6-6 6',
   chevron: 'M9 6l6 6-6 6',
+  back: 'M15 18l-6-6 6-6',
   check: 'M20 6L9 17l-5-5',
   alert: 'M12 9v4 M12 17h.01 M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
   sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z M12 1v3 M12 20v3 M4.2 4.2l2.1 2.1 M17.7 17.7l2.1 2.1 M1 12h3 M20 12h3 M4.2 19.8l2.1-2.1 M17.7 6.3l2.1-2.1',

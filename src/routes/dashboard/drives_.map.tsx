@@ -1,20 +1,17 @@
-import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { MapFilterControls } from '../../components/dashboard/MapFilterControls'
-import { LifetimeMap, MapMessage, MapOverlay, type MapPoint } from '../../components/dashboard/LifetimeMap'
-import { useDash } from '../../components/dashboard/DashboardProvider'
-import { SECTION } from '../../components/dashboard/theme'
+import { useDashboardData } from '../../lib/queries'
+import { SectionRouteMap } from '../../components/dashboard/SectionRouteMap'
+import { type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { mergeNearbyPoints } from '../../lib/map-vm'
 import { lastChargeMsOf, rangeToIso, resolveRange } from '../../lib/range-filter'
+import { useDash } from '../../components/dashboard/DashboardProvider'
 import { getDriveRoutes, type DriveRoutesMap } from '../../functions/drives.functions'
 
 export const Route = createFileRoute('/dashboard/drives_/map')({
   component: DrivesMapPage,
 })
-
-const dashApi = getRouteApi('/dashboard')
-const COLOR = SECTION.drives
 
 /**
  * Dedicated full-screen route map (`/dashboard/drives/map`). Un-nested from the
@@ -22,12 +19,12 @@ const COLOR = SECTION.drives
  * shell, with the History/Map toggle + back button navigating to the list rather
  * than flipping in-page state. Every drive is drawn as its own road-matched GPS
  * polyline; the route map is fetched on mount (and re-fetched on a car switch).
- * Road-matching itself is run from Settings → Backfill.
+ * Road-matching itself is run from Settings → Backfill. Shared map scaffolding
+ * lives in <SectionRouteMap>; this file owns the drive-specific route fetch + pins.
  */
 function DrivesMapPage() {
-  const { activeVin, charging, now } = dashApi.useLoaderData()
-  const { theme, range, setRange } = useDash()
-  const isDark = theme === 'dark'
+  const { activeVin, charging, now } = useDashboardData()
+  const { range } = useDash()
   const navigate = useNavigate()
 
   const nowMs = Date.parse(now)
@@ -70,34 +67,23 @@ function DrivesMapPage() {
     return mergeNearbyPoints(endpoints).map((p) => ({ lat: p.lat, lng: p.lng }))
   }, [routesMap])
 
-  const toHistory = () => navigate({ to: '/dashboard/drives', search: (prev) => prev })
   const hasRoutes = !!routesMap && routesMap.routes.length > 0
 
   return (
-    <MapOverlay
-      onBack={toHistory}
-      topLeft={
-        <MapFilterControls
-          section="drives"
-          range={range}
-          onRangeChange={setRange}
-          accent={COLOR}
-          isDark={isDark}
-          nowMs={nowMs}
-          lastChargeMs={lastChargeMs}
-        />
-      }
+    <SectionRouteMap
+      section="drives"
+      onBack={() => navigate({ to: '/dashboard/drives', search: (prev) => prev })}
+      nowMs={nowMs}
+      lastChargeMs={lastChargeMs}
+      routes={routesMap?.routes}
+      points={drivePins}
+      hasContent={hasRoutes}
       caption={
         hasRoutes
           ? `${routesMap!.driveCount} route${routesMap!.driveCount === 1 ? '' : 's'} · ${drivePins.length} start/end place${drivePins.length === 1 ? '' : 's'} · road-matched (drives too GPS-sparse to snap are hidden)`
           : null
       }
-    >
-      {hasRoutes ? (
-        <LifetimeMap fill routes={routesMap!.routes} points={drivePins} routeColor={COLOR} markerColor={COLOR} isDark={isDark} />
-      ) : (
-        <MapMessage>{routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}</MapMessage>
-      )}
-    </MapOverlay>
+      emptyMessage={routesLoading || !routesMap ? 'Building route map…' : 'No GPS routes recorded yet.'}
+    />
   )
 }

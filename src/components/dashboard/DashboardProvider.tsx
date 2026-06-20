@@ -57,13 +57,16 @@ function readRange(): RangeState {
     if (!raw) return DEFAULT_RANGE
     const p = JSON.parse(raw) as RangeState
     if (!p || !VALID_RANGE_KEYS.has(p.key)) return DEFAULT_RANGE
-    return p.key === 'custom'
-      ? {
-          key: 'custom',
-          customFrom: typeof p.customFrom === 'string' ? p.customFrom : null,
-          customTo: typeof p.customTo === 'string' ? p.customTo : null,
-        }
-      : { key: p.key }
+    if (p.key === 'custom') {
+      const customFrom = typeof p.customFrom === 'string' ? p.customFrom : null
+      const customTo = typeof p.customTo === 'string' ? p.customTo : null
+      // A custom range missing a bound silently resolves to all-time; drop such a
+      // corrupted/legacy entry to the default rather than persisting a "Custom"
+      // selection whose window doesn't match its label.
+      if (!customFrom || !customTo) return DEFAULT_RANGE
+      return { key: 'custom', customFrom, customTo }
+    }
+    return { key: p.key }
   } catch {
     return DEFAULT_RANGE
   }

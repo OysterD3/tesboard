@@ -1,18 +1,20 @@
-import { createFileRoute, getRouteApi, useRouter } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
 import { useDash } from '../../components/dashboard/DashboardProvider'
-import { ICON } from '../../components/dashboard/theme'
+import { useDashboardData } from '../../lib/queries'
+import { ICON, THEME } from '../../components/dashboard/theme'
+import { cn } from '../../lib/utils'
 import { deleteGeofence, upsertGeofence } from '../../functions/geofences.functions'
 import { getLatestVehicleGps } from '../../functions/rate.functions'
 import type { BillingType, Geofence } from '../../types/db'
 
 export const Route = createFileRoute('/dashboard/geofences')({ component: GeofencesPage })
 
-const dashApi = getRouteApi('/dashboard')
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
+const inputClass =
+  'w-full border border-border rounded-[10px] px-[11px] py-[9px] text-sm font-sans bg-card text-foreground box-border'
 
 interface Draft {
   id: number | null
@@ -58,16 +60,25 @@ function toDraft(g: Geofence): Draft {
 }
 
 function GeofencesPage() {
-  const { geofences, activeVin } = dashApi.useLoaderData()
+  const { geofences, activeVin } = useDashboardData()
   const { accent } = useDash()
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const save = useServerFn(upsertGeofence)
   const del = useServerFn(deleteGeofence)
   const getGps = useServerFn(getLatestVehicleGps)
 
+  const saveMutation = useMutation({
+    mutationFn: save,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+  })
+  const deleteMutation = useMutation({
+    mutationFn: del,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+  })
+
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const busy = saveMutation.isPending || deleteMutation.isPending
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => (d ? { ...d, [k]: v } : d))
 
@@ -79,10 +90,9 @@ function GeofencesPage() {
       setMsg('Name and a valid latitude/longitude are required.')
       return
     }
-    setBusy(true)
     setMsg(null)
     try {
-      await save({
+      await saveMutation.mutateAsync({
         data: {
           id: draft.id,
           name: draft.name.trim(),
@@ -97,22 +107,17 @@ function GeofencesPage() {
         },
       })
       setDraft(null)
-      router.invalidate()
     } catch (e) {
       setMsg((e as Error).message)
-    } finally {
-      setBusy(false)
     }
   }
 
   async function remove(id: number) {
-    setBusy(true)
     try {
-      await del({ data: { id } })
+      await deleteMutation.mutateAsync({ data: { id } })
       setDraft(null)
-      router.invalidate()
-    } finally {
-      setBusy(false)
+    } catch {
+      /* keep the editor open on failure */
     }
   }
 
@@ -123,13 +128,14 @@ function GeofencesPage() {
   }
 
   return (
-    <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div className="evd-view flex flex-col gap-[14px]">
+      <div className="flex items-center justify-between">
         <ViewTitle>Geofences</ViewTitle>
         {!draft && (
           <button
             onClick={() => setDraft(emptyDraft())}
-            style={{ border: 'none', background: accent, color: '#fff', borderRadius: 30, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            className="rounded-[30px] px-4 py-2 text-[13px] font-semibold text-white cursor-pointer border-none"
+            style={{ background: accent }}
           >
             + Add zone
           </button>
@@ -137,21 +143,27 @@ function GeofencesPage() {
       </div>
 
       {draft && (
-        <Card radius={20} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: TX }}>{draft.id ? 'Edit zone' : 'New zone'}</span>
+        <Card radius={20} className="p-[18px] flex flex-col gap-3">
+          <span className="text-sm font-bold text-foreground">{draft.id ? 'Edit zone' : 'New zone'}</span>
           <Field label="Name"><Input value={draft.name} onChange={(v) => set('name', v)} placeholder="Home, Work, …" /></Field>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div className="flex gap-2.5">
             <Field label="Latitude"><Input value={draft.lat} onChange={(v) => set('lat', v)} placeholder="37.123456" /></Field>
             <Field label="Longitude"><Input value={draft.lng} onChange={(v) => set('lng', v)} placeholder="-122.123456" /></Field>
           </div>
-          <button onClick={useCarGps} style={linkBtn(accent)}>Use car’s current GPS</button>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={useCarGps}
+            className="border-none bg-transparent text-[13px] font-semibold cursor-pointer p-0 text-left"
+            style={{ color: accent }}
+          >
+            Use car’s current GPS
+          </button>
+          <div className="flex gap-2.5">
             <Field label="Radius (m)"><Input value={draft.radiusM} onChange={(v) => set('radiusM', v)} /></Field>
             <Field label="Billing">
               <select
                 value={draft.billingType}
                 onChange={(e) => set('billingType', e.target.value as BillingType)}
-                style={inputStyle}
+                className={inputClass}
               >
                 <option value="per_kwh">Per kWh</option>
                 <option value="per_minute">Per minute</option>
@@ -159,28 +171,40 @@ function GeofencesPage() {
               </select>
             </Field>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div className="flex gap-2.5">
             <Field label={draft.billingType === 'per_session' ? 'Rate (unused)' : 'Cost / unit'}>
               <Input value={draft.costPerUnit} onChange={(v) => set('costPerUnit', v)} placeholder="0.15" />
             </Field>
             <Field label="Session fee"><Input value={draft.sessionFee} onChange={(v) => set('sessionFee', v)} placeholder="0" /></Field>
             <Field label="Currency"><Input value={draft.currency} onChange={(v) => set('currency', v)} /></Field>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500, color: TX, cursor: 'pointer' }}>
+          <label className="flex items-center gap-2 text-[13px] font-medium text-foreground cursor-pointer">
             <input type="checkbox" checked={draft.isHome} onChange={(e) => set('isHome', e.target.checked)} />
             This is my home zone (used for home-rate cost + departure readiness)
           </label>
-          {msg && <span style={{ fontSize: 12, color: '#f43f5e', fontWeight: 500 }}>{msg}</span>}
-          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-            <button onClick={submit} disabled={busy} style={{ flex: 1, border: 'none', background: accent, color: '#fff', borderRadius: 12, padding: '11px', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
+          {msg && <span className="text-xs font-medium text-destructive">{msg}</span>}
+          <div className="flex gap-2.5 mt-1">
+            <button
+              onClick={submit}
+              disabled={busy}
+              className={cn('flex-1 rounded-xl p-[11px] text-sm font-semibold text-white cursor-pointer border-none', busy && 'opacity-60')}
+              style={{ background: accent }}
+            >
               {busy ? 'Saving…' : 'Save'}
             </button>
             {draft.id && (
-              <button onClick={() => remove(draft.id!)} disabled={busy} style={{ border: '1px solid #f43f5e', background: 'transparent', color: '#f43f5e', borderRadius: 12, padding: '11px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              <button
+                onClick={() => remove(draft.id!)}
+                disabled={busy}
+                className="rounded-xl px-4 py-[11px] text-sm font-semibold cursor-pointer border border-destructive text-destructive bg-transparent"
+              >
                 Delete
               </button>
             )}
-            <button onClick={() => setDraft(null)} style={{ border: '1px solid var(--border,rgba(0,0,0,0.1))', background: 'transparent', color: TD, borderRadius: 12, padding: '11px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            <button
+              onClick={() => setDraft(null)}
+              className="rounded-xl px-4 py-[11px] text-sm font-semibold cursor-pointer border border-border text-muted-foreground bg-transparent"
+            >
               Cancel
             </button>
           </div>
@@ -191,16 +215,21 @@ function GeofencesPage() {
         <EmptyCard title="No geofences yet" body="Add named zones (home, work, a friend's place) with their own electricity rate. Charges inside a zone are costed by its rule; the home zone also drives departure readiness." />
       ) : (
         geofences.map((g) => (
-          <Card key={g.id} radius={18} style={{ padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <span style={{ width: 36, height: 36, borderRadius: 10, background: g.is_home ? 'rgba(52,199,89,0.13)' : 'var(--track,#f0f0f3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
-                <Icon d={ICON.pin} size={18} color={g.is_home ? '#34c759' : TD} />
+          <Card key={g.id} radius={18} className="p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <span
+                className={cn(
+                  'w-9 h-9 rounded-[10px] flex items-center justify-center flex-none',
+                  g.is_home ? 'bg-[rgba(52,199,89,0.13)]' : 'bg-secondary',
+                )}
+              >
+                <Icon d={ICON.pin} size={18} color={g.is_home ? '#34c759' : THEME.td} />
               </span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: TX }}>
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-sm font-semibold text-foreground">
                   {g.name}{g.is_home ? ' · home' : ''}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: TD }}>
+                <span className="text-xs font-medium text-muted-foreground">
                   {(g.cost_per_unit != null
                     ? `${g.cost_per_unit} ${g.currency ?? ''} / ${g.billing_type === 'per_minute' ? 'min' : 'kWh'}`
                     : g.session_fee != null
@@ -209,7 +238,13 @@ function GeofencesPage() {
                 </span>
               </div>
             </div>
-            <button onClick={() => setDraft(toDraft(g))} style={linkBtn(accent)}>Edit</button>
+            <button
+              onClick={() => setDraft(toDraft(g))}
+              className="border-none bg-transparent text-[13px] font-semibold cursor-pointer p-0 text-left"
+              style={{ color: accent }}
+            >
+              Edit
+            </button>
           </Card>
         ))
       )}
@@ -217,31 +252,15 @@ function GeofencesPage() {
   )
 }
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  border: '1px solid var(--border,rgba(0,0,0,0.12))',
-  borderRadius: 10,
-  padding: '9px 11px',
-  fontSize: 14,
-  fontFamily: 'inherit',
-  background: 'var(--card,#fff)',
-  color: 'var(--tx,#1d1d1f)',
-  boxSizing: 'border-box',
-}
-
 function Input({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return <input value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={inputStyle} />
+  return <input value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={inputClass} />
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minWidth: 0 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: TD }}>{label}</span>
+    <label className="flex flex-col gap-[5px] flex-1 min-w-0">
+      <span className="text-[11px] font-semibold text-muted-foreground">{label}</span>
       {children}
     </label>
   )
-}
-
-function linkBtn(accent: string): React.CSSProperties {
-  return { border: 'none', background: 'transparent', color: accent, fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: 0, textAlign: 'left' }
 }

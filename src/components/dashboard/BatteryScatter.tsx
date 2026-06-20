@@ -111,7 +111,7 @@ export function BatteryScatter({
       onPointerUp={clear}
       onPointerCancel={clear}
       onPointerLeave={clear}
-      style={{ display: 'block', overflow: 'visible', touchAction: 'pan-y' }}
+      className="block overflow-visible touch-pan-y"
     >
       <defs>
         <clipPath id={clip}>

@@ -6,11 +6,8 @@
  * Theme-agnostic (CSS vars + an accent color), like the other primitives.
  */
 import type { ReactNode } from 'react'
-import { Card, Icon } from './primitives'
+import { Card, Icon, IconChip } from './primitives'
 import { SeriesChart, type SeriesPoint } from './SeriesChart'
-
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 
 /** Em dash for a missing value. */
 export const DASH = '—'
@@ -25,19 +22,19 @@ export function fmtMoney(c: { amount: number; currency: string } | null): string
 /** A titled section block (header, then tiles and/or a chart). */
 export function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Card radius={22} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: TX }}>{title}</span>
+    <Card radius={22} className="flex flex-col gap-4 p-[18px]">
+      <span className="text-[18px] font-bold tracking-[-0.02em] text-foreground">{title}</span>
       {children}
     </Card>
   )
 }
 
 export function TileRow({ children }: { children: ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>{children}</div>
+  return <div className="grid grid-cols-2 gap-4">{children}</div>
 }
 
 export function Divider() {
-  return <div style={{ height: 1, background: 'var(--border,rgba(0,0,0,0.07))' }} />
+  return <div className="h-px bg-border" />
 }
 
 /** Circular-icon stat tile: icon badge + label + value (+ optional unit). */
@@ -60,30 +57,19 @@ export function StatTile({
   fill?: boolean
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-      <div
-        style={{
-          width: 42,
-          height: 42,
-          flex: 'none',
-          borderRadius: '50%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'var(--track,#f0f0f3)',
-        }}
-      >
+    <div className="flex min-w-0 items-center gap-3">
+      <IconChip size={42} color={accent}>
         {glyph ?? (icon ? <Icon d={icon} size={20} color={accent} fill={fill ? accent : 'none'} stroke={!fill} width={1.9} /> : null)}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: TD, whiteSpace: 'nowrap' }}>
+      </IconChip>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="whitespace-nowrap text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
           {label}
         </span>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: TX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div className="flex min-w-0 items-baseline gap-1">
+          <span className="truncate text-[18px] font-bold tracking-[-0.02em] text-foreground">
             {value}
           </span>
-          {unit ? <span style={{ fontSize: 12, fontWeight: 600, color: TD, flex: 'none' }}>{unit}</span> : null}
+          {unit ? <span className="flex-none text-xs font-semibold text-muted-foreground">{unit}</span> : null}
         </div>
       </div>
     </div>
@@ -112,20 +98,8 @@ export function Chart({
     return <SeriesChart points={points} color={color} formatX={formatX} formatY={formatY} unitY={unitY} baseline={baseline} />
   }
   return (
-    <div
-      style={{
-        height: 96,
-        borderRadius: 14,
-        border: '1px solid var(--border,rgba(0,0,0,0.07))',
-        background: 'var(--track,#f7f7f9)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-        padding: 16,
-      }}
-    >
-      <span style={{ fontSize: 11, fontWeight: 500, color: TD }}>{empty}</span>
+    <div className="flex h-24 items-center justify-center rounded-[14px] border border-border bg-secondary p-4 text-center">
+      <span className="text-[11px] font-medium text-muted-foreground">{empty}</span>
     </div>
   )
 }

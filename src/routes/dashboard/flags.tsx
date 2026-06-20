@@ -1,13 +1,15 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
-import { useState } from 'react'
-import { dismissAnomaly, getAnomalies } from '../../functions/anomalies.functions'
+import { createFileRoute } from '@tanstack/react-router'
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import { dismissAnomaly } from '../../functions/anomalies.functions'
+import { anomaliesQuery } from '../../lib/queries'
 import { EmptyState, dateTime } from '../../components/Stat'
 import { useDisplayTz } from '../../lib/use-hydrated'
+import { cn } from '../../lib/utils'
 import type { AnomalyFlag } from '../../types/db'
 
 export const Route = createFileRoute('/dashboard/flags')({
   loaderDeps: ({ search }) => ({ vin: (search as { vin?: string }).vin }),
-  loader: ({ deps }) => getAnomalies({ data: { vin: deps.vin } }),
+  loader: ({ context, deps }) => context.queryClient.ensureQueryData(anomaliesQuery(deps.vin)),
   component: FlagsPage,
 })
 
@@ -17,7 +19,7 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 function FlagsPage() {
-  const { flags } = Route.useLoaderData()
+  const { flags } = useSuspenseQuery(anomaliesQuery(Route.useLoaderDeps().vin)).data
   const open = flags.filter((f) => f.dismissed_at == null)
   const dismissed = flags.filter((f) => f.dismissed_at != null)
 
@@ -55,31 +57,23 @@ function FlagsPage() {
 }
 
 function FlagRow({ flag, dismissed }: { flag: AnomalyFlag; dismissed?: boolean }) {
-  const router = useRouter()
   const tz = useDisplayTz()
-  const [busy, setBusy] = useState(false)
+  const queryClient = useQueryClient()
+  const dismiss = useMutation({
+    mutationFn: (id: number) => dismissAnomaly({ data: { id } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['anomalies'] }),
+  })
   const isWarning = flag.severity === 'warning'
-
-  async function onDismiss() {
-    setBusy(true)
-    try {
-      await dismissAnomaly({ data: { id: flag.id } })
-      await router.invalidate()
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <article className="island-shell flex items-start justify-between gap-4 rounded-2xl p-4">
       <div>
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <span
-            className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-            style={{
-              background: isWarning ? 'rgba(180,83,9,0.16)' : 'rgba(79,184,178,0.18)',
-              color: 'var(--sea-ink)',
-            }}
+            className={cn(
+              'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-[var(--sea-ink)]',
+              isWarning ? 'bg-[rgba(180,83,9,0.16)]' : 'bg-[rgba(79,184,178,0.18)]',
+            )}
           >
             {TYPE_LABEL[flag.type] ?? flag.type}
           </span>
@@ -89,11 +83,11 @@ function FlagRow({ flag, dismissed }: { flag: AnomalyFlag; dismissed?: boolean }
       </div>
       {!dismissed && (
         <button
-          onClick={onDismiss}
-          disabled={busy}
+          onClick={() => dismiss.mutate(flag.id)}
+          disabled={dismiss.isPending}
           className="shrink-0 rounded-full border border-[var(--line)] bg-white/50 px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] transition hover:-translate-y-0.5 disabled:opacity-60"
         >
-          {busy ? '…' : 'Dismiss'}
+          {dismiss.isPending ? '…' : 'Dismiss'}
         </button>
       )}
     </article>

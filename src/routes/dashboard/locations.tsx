@@ -1,17 +1,18 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { getChargingLocations } from '../../functions/locations.functions'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { locationsQuery } from '../../lib/queries'
 import { EmptyState, StatCard, dateTime, kwh, money } from '../../components/Stat'
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { kw } from '../../lib/charge-location'
 
 export const Route = createFileRoute('/dashboard/locations')({
   loaderDeps: ({ search }) => ({ vin: (search as { vin?: string }).vin }),
-  loader: ({ deps }) => getChargingLocations({ data: { vin: deps.vin } }),
+  loader: ({ context, deps }) => context.queryClient.ensureQueryData(locationsQuery(deps.vin)),
   component: LocationsPage,
 })
 
 function LocationsPage() {
-  const { locations } = Route.useLoaderData()
+  const { locations } = useSuspenseQuery(locationsQuery(Route.useLoaderDeps().vin)).data
   const tz = useDisplayTz()
   const totalEnergy = locations.reduce((s, l) => s + l.totalEnergyKwh, 0)
   const mostVisited = locations[0] ?? null

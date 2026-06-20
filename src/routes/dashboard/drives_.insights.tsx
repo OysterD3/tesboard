@@ -1,28 +1,21 @@
-import { createFileRoute, getRouteApi } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { useDashboardData } from '../../lib/queries'
+import { Card, EmptyCard, Icon, SectionLabel, ViewTitle } from '../../components/dashboard/primitives'
 import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { RangeFilter } from '../../components/dashboard/RangeFilter'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
 import { buildDriveInsights } from '../../lib/dashboard-vm'
 import { lastChargeMsOf, resolveRange } from '../../lib/range-filter'
+import { money } from '../../lib/format'
 import { distUnit, effFromWhKm, effSuffix, fmtDist } from '../../lib/units'
 
 export const Route = createFileRoute('/dashboard/drives_/insights')({
   component: DrivesInsightsPage,
 })
 
-const dashApi = getRouteApi('/dashboard')
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
-
-function money(amount: number | null, currency: string, digits = 0): string {
-  if (amount == null) return '—'
-  const v = amount.toFixed(digits)
-  return currency === 'USD' ? `$${v}` : `${v} ${currency}`
-}
 
 /**
  * Drives → Insights. Streaks & milestones over a user-selected date window
@@ -30,7 +23,7 @@ function money(amount: number | null, currency: string, digits = 0): string {
  * lives on the Idles section.
  */
 function DrivesInsightsPage() {
-  const { drives, charging, now } = dashApi.useLoaderData()
+  const { drives, charging, now } = useDashboardData()
   const { units: u, accent, theme, range, setRange } = useDash()
   const isDark = theme === 'dark'
 
@@ -47,8 +40,8 @@ function DrivesInsightsPage() {
     : []
 
   return (
-    <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+    <div className="evd-view flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2.5 flex-wrap">
         <ViewTitle>Drives</ViewTitle>
         <SectionTabs section="drives" value="insights" accent={COLOR} isDark={isDark} />
       </div>
@@ -56,25 +49,25 @@ function DrivesInsightsPage() {
       <RangeFilter state={range} onChange={setRange} accent={COLOR} isDark={isDark} nowMs={nowMs} lastChargeMs={lastChargeMs} />
 
       {vm.hasDrives ? (
-        <Card radius={22} style={{ padding: '6px 20px 18px' }}>
-          <div style={{ padding: '16px 0 6px' }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: TD }}>Streaks &amp; milestones</span>
+        <Card radius={22} className="px-5 pt-1.5 pb-[18px]">
+          <div className="pt-4 pb-1.5">
+            <SectionLabel>Streaks &amp; milestones</SectionLabel>
           </div>
           {milestones.map((m) => (
-            <div key={m.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 0', borderBottom: '1px solid var(--border,rgba(0,0,0,0.07))' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ width: 32, height: 32, borderRadius: 9, background: m.tint, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+            <div key={m.label} className="flex items-center justify-between py-[13px] border-b border-border">
+              <div className="flex items-center gap-3">
+                <span className="w-8 h-8 rounded-[9px] flex items-center justify-center flex-none" style={{ background: m.tint }}>
                   <Icon d={m.icon} size={16} color={m.color} />
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 500, color: TX }}>{m.label}</span>
+                <span className="text-sm font-medium text-foreground">{m.label}</span>
               </div>
-              <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: TX }}>{m.val}</span>
+              <span className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{m.val}</span>
             </div>
           ))}
           {vm.distKm != null && vm.spend != null && (
-            <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 14, background: hexToRgba(accent, 0.09) }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: TX, lineHeight: 1.5 }}>
-                You’ve driven {fmtDist(u, vm.distKm).toLocaleString('en-US')} {distUnit(u)} on {money(vm.spend, vm.currency)} of energy.
+            <div className="mt-4 px-4 py-3.5 rounded-[14px]" style={{ background: hexToRgba(accent, 0.09) }}>
+              <span className="text-[13px] font-semibold text-foreground leading-normal">
+                You’ve driven {fmtDist(u, vm.distKm).toLocaleString('en-US')} {distUnit(u)} on {money(vm.spend, vm.currency, 0)} of energy.
               </span>
             </div>
           )}

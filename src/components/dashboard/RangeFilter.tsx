@@ -1,16 +1,30 @@
-import { RANGE_CHIPS, clampCustom, toYmdUtc, type RangeKey, type RangeState } from '../../lib/range-filter'
+import { CalendarIcon } from 'lucide-react'
+import {
+  RANGE_CHIPS,
+  clampCustom,
+  rangeLabel,
+  toYmdUtc,
+  type RangeKey,
+  type RangeState,
+} from '../../lib/range-filter'
+import { themeVars } from './theme'
+import { cn } from '../../lib/utils'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '../ui/select'
 
-const TD = 'var(--td,#86868b)'
-const TX = 'var(--tx,#1d1d1f)'
 const DAY_MS = 86_400_000
 
 /**
- * Horizontal scrollable date-range chips shared by every dated view (Drives /
- * Charging / Idles → History, Map, Insights). Mirrors the MonthFilter chip style.
- * "Custom" reveals a start/end date pair. "Since last charge" is hidden when the
- * account has no charges (no anchor). `nowMs` is the server-anchored "now" from
- * the dashboard loader so the default window resolves identically on SSR and the
+ * Date-range filter shared by every dated view (Drives / Charging / Idles →
+ * History, Map, Insights): a compact shadcn Select dropdown. Picking "Custom"
+ * reveals a start/end date pair; "Since last charge" is hidden when the account
+ * has no charges (no anchor). `nowMs` is the server-anchored "now" from the
+ * dashboard loader so the default window resolves identically on SSR and the
  * client (no hydration flicker).
+ *
+ * The dropdown content is portaled to <body> by Radix, which lives OUTSIDE the
+ * dashboard root that carries the runtime theme vars — so we stamp `themeVars()`
+ * inline on the content (and bias `--ac` to the section accent) to keep the
+ * popover self-themed in light AND dark mode.
  */
 export function RangeFilter({
   state,
@@ -29,10 +43,16 @@ export function RangeFilter({
 }) {
   const todayYmd = toYmdUtc(nowMs)
   const chips = RANGE_CHIPS.filter((c) => c.key !== 'sinceLastCharge' || lastChargeMs != null)
-  // A persisted "since last charge" with no charge resolves to all-time (see
-  // resolveRange) and its chip is hidden — highlight "All time" so the bar still
-  // reflects the window that's actually applied, rather than nothing.
-  const effectiveKey = state.key === 'sinceLastCharge' && lastChargeMs == null ? 'all' : state.key
+  // Selections that resolve to all-time but aren't literally "all": "since last
+  // charge" with no charge anchor (option hidden), or a custom range missing a
+  // bound (only via corrupted/legacy storage). Surface them as "All time" so the
+  // control reflects the window actually applied (resolveRange) rather than a
+  // hidden option or a "Custom" label over all-time data.
+  const incompleteCustom = state.key === 'custom' && (!state.customFrom || !state.customTo)
+  const fellBackToAll = (state.key === 'sinceLastCharge' && lastChargeMs == null) || incompleteCustom
+  const effectiveKey: RangeKey = fellBackToAll ? 'all' : state.key
+  const triggerLabel = fellBackToAll ? 'All time' : rangeLabel(state)
+  const contentVars = themeVars(isDark ? 'dark' : 'light', accent)
 
   function selectKey(key: RangeKey) {
     if (key === 'custom') {
@@ -53,49 +73,39 @@ export function RangeFilter({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div
-        style={{
-          display: 'flex',
-          gap: 8,
-          overflowX: 'auto',
-          paddingBottom: 2,
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-          WebkitOverflowScrolling: 'touch',
-        }}
-      >
-        {chips.map((c) => {
-          const active = c.key === effectiveKey
-          return (
-            <button
+    <div className="flex flex-col gap-2.5 items-start">
+      <Select value={effectiveKey} onValueChange={(v) => selectKey(v as RangeKey)}>
+        <SelectTrigger
+          aria-label="Date range"
+          // bg-card (folded into cn, last-wins) beats shadcn's stray
+          // `dark:bg-input/30` (the app themes via CSS vars + a `.dark` class, not
+          // Tailwind's OS-pref `dark:` variant) so the pill stays a solid, readable
+          // card — including floated over the map.
+          className={cn('rounded-full px-3.5 text-[13px] font-semibold shadow-sm bg-card')}
+        >
+          <span className="flex items-center gap-[7px] min-w-0">
+            <CalendarIcon style={{ color: accent }} aria-hidden="true" />
+            <span className="text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
+              {triggerLabel}
+            </span>
+          </span>
+        </SelectTrigger>
+        <SelectContent style={contentVars} className="font-sans">
+          {chips.map((c) => (
+            <SelectItem
               key={c.key}
-              type="button"
-              aria-pressed={active}
-              onClick={() => selectKey(c.key)}
-              style={{
-                flex: 'none',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: 600,
-                letterSpacing: '-0.01em',
-                padding: '7px 14px',
-                borderRadius: 30,
-                whiteSpace: 'nowrap',
-                transition: 'background 120ms, color 120ms',
-                color: active ? '#fff' : TX,
-                background: active ? accent : isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
-                border: `1px solid ${active ? accent : 'var(--border,rgba(0,0,0,0.08))'}`,
-              }}
+              value={c.key}
+              className="text-[13px] font-medium"
+              style={c.key === effectiveKey ? { color: accent, fontWeight: 600 } : undefined}
             >
               {c.label}
-            </button>
-          )
-        })}
-      </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      {state.key === 'custom' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {state.key === 'custom' && !incompleteCustom && (
+        <div className="flex items-center gap-2 max-w-full">
           <DateInput
             label="Start date"
             value={state.customFrom ?? ''}
@@ -103,7 +113,7 @@ export function RangeFilter({
             isDark={isDark}
             onChange={(v) => applyCustom(v, state.customTo ?? todayYmd)}
           />
-          <span aria-hidden="true" style={{ color: TD, fontSize: 13, fontWeight: 600, flex: 'none' }}>–</span>
+          <span aria-hidden="true" className="text-muted-foreground text-[13px] font-semibold flex-none">–</span>
           <DateInput
             label="End date"
             value={state.customTo ?? ''}
@@ -141,17 +151,14 @@ function DateInput({
       min={min}
       max={max}
       onChange={(e) => e.target.value && onChange(e.target.value)}
+      className={cn(
+        'flex-1 min-w-0 font-[inherit] text-[13px] font-semibold text-foreground border border-border rounded-[10px] px-2.5 py-2',
+        !isDark && 'bg-card',
+      )}
+      // The dark surface tint + colorScheme stay inline: the app themes via a
+      // `.dark` class + CSS vars, not Tailwind's OS-pref `dark:` variant.
       style={{
-        flex: 1,
-        minWidth: 0,
-        fontFamily: 'inherit',
-        fontSize: 13,
-        fontWeight: 600,
-        color: TX,
-        background: isDark ? 'rgba(255,255,255,0.06)' : 'var(--card,#fff)',
-        border: '1px solid var(--border,rgba(0,0,0,0.12))',
-        borderRadius: 10,
-        padding: '8px 10px',
+        background: isDark ? 'rgba(255,255,255,0.06)' : undefined,
         colorScheme: isDark ? 'dark' : 'light',
       }}
     />

@@ -8,10 +8,11 @@ import {
 } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { getAuthStatus } from '../functions/account.functions'
-import { getDashboardData } from '../functions/dashboard-data.functions'
+import { dashboardQuery, useDashboardData } from '../lib/queries'
 import { DashboardProvider, useDash } from '../components/dashboard/DashboardProvider'
 import { Icon, Card } from '../components/dashboard/primitives'
-import { ICON, SECTION, themeVars } from '../components/dashboard/theme'
+import { ICON, SECTION, THEME, themeVars } from '../components/dashboard/theme'
+import { cn } from '../lib/utils'
 
 interface DashSearch {
   vin?: string
@@ -32,20 +33,14 @@ export const Route = createFileRoute('/dashboard')({
   },
   loaderDeps: ({ search }) => ({ vin: search.vin }),
   loader: async ({ context, deps }) => {
-    const linked = context.auth.teslaLinked
-
-    // ONE server fn → ONE database connection for the whole SSR render. (Calling
-    // the ~12 reads as separate server fns opened ~12 connections in a single
-    // Worker request and blew past Cloudflare's 6-connections-per-request limit →
-    // "Network connection lost" on refresh. See dashboard-data.functions.ts.)
-    // The active car is resolved server-side (requested vin if owned, else the
-    // most-recently-active); `vin` stays out of the URL unless the user switches.
-    const data = await getDashboardData({ data: { vin: deps.vin } })
-    return {
-      auth: context.auth,
-      linked,
-      ...data,
-    }
+    // Prefetch the aggregate into the react-query cache (one server fn → one DB
+    // connection, still under Cloudflare's 6-conns/request limit; see
+    // dashboard-data.functions.ts). Child routes + this shell read the SAME query
+    // via useDashboardData() (cache hit), so a mutation can invalidate
+    // ['dashboard'] and the whole view refreshes. The active car is resolved
+    // server-side; `vin` stays out of the URL unless the user switches.
+    await context.queryClient.ensureQueryData(dashboardQuery(deps.vin))
+    return { auth: context.auth, linked: context.auth.teslaLinked }
   },
   component: () => (
     <DashboardProvider>
@@ -70,11 +65,12 @@ function greetingFor(hour: number): string {
 }
 
 function DashboardShell() {
-  const { linked, overview, activeVin } = Route.useLoaderData()
+  const { linked } = Route.useLoaderData()
+  const { overview, activeVin } = useDashboardData()
   const { theme, accent, toggleTheme } = useDash()
   const location = useLocation()
   const navigate = useNavigate()
-  const td = 'var(--td,#86868b)'
+  const td = THEME.td
 
   const vehicles = overview.vehicles
   const vw = vehicles.find((v) => v.vehicle.vin === activeVin) ?? vehicles[0]
@@ -106,41 +102,30 @@ function DashboardShell() {
         fontFamily: "'Geist', system-ui, -apple-system, sans-serif",
       }}
     >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 430,
-          minHeight: '100vh',
-          margin: '0 auto',
-          position: 'relative',
-          padding: '0 20px 124px',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
+      <div className="w-full max-w-[430px] min-h-screen mx-auto relative px-5 pt-0 pb-[124px] flex flex-col">
         {/* HEADER */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '30px 2px 22px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, position: 'relative' }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: td, whiteSpace: 'nowrap' }}>{greeting}</span>
+        <div className="flex items-start justify-between pt-[30px] px-0.5 pb-[22px]">
+          <div className="flex flex-col gap-1 min-w-0 relative">
+            <span className="text-[13px] font-medium text-muted-foreground whitespace-nowrap">{greeting}</span>
             {canSwitch ? (
               <button
                 onClick={() => setPickerOpen((o) => !o)}
                 aria-haspopup="listbox"
                 aria-expanded={pickerOpen}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', maxWidth: '100%' }}
+                className="flex items-center gap-2 bg-transparent border-none p-0 cursor-pointer max-w-full"
               >
-                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--tx,#1d1d1f)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleName}</span>
+                <span className="text-[28px] font-bold tracking-[-0.025em] text-foreground overflow-hidden text-ellipsis whitespace-nowrap">{vehicleName}</span>
                 <Icon d={ICON.chevron} size={20} color={td} />
               </button>
             ) : (
-              <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--tx,#1d1d1f)' }}>{vehicleName}</span>
+              <span className="text-[28px] font-bold tracking-[-0.025em] text-foreground">{vehicleName}</span>
             )}
-            {trim && <span style={{ fontSize: 13, fontWeight: 500, color: td }}>{trim}</span>}
+            {trim && <span className="text-[13px] font-medium text-muted-foreground">{trim}</span>}
 
             {canSwitch && pickerOpen && (
               <>
-                <div onClick={() => setPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
-                <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 8, minWidth: 220, maxWidth: 280, background: 'var(--card,#fff)', border: '1px solid var(--border,rgba(0,0,0,0.08))', borderRadius: 16, boxShadow: 'var(--shadow)', padding: 6, zIndex: 31 }}>
+                <div onClick={() => setPickerOpen(false)} className="fixed inset-0 z-30" />
+                <div role="listbox" className="absolute top-full left-0 mt-2 min-w-[220px] max-w-[280px] bg-card border border-border rounded-2xl shadow-[var(--shadow)] p-1.5 z-[31]">
                   {vehicles.map((v) => {
                     const isActive = v.vehicle.vin === activeVin
                     return (
@@ -149,11 +134,11 @@ function DashboardShell() {
                         role="option"
                         aria-selected={isActive}
                         onClick={() => selectVehicle(v.vehicle.vin)}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', background: isActive ? 'var(--track,#f0f0f3)' : 'transparent', borderRadius: 11, padding: '10px 12px' }}
+                        className={cn('flex items-center justify-between gap-2.5 w-full text-left border-none cursor-pointer rounded-[11px] px-3 py-2.5', isActive ? 'bg-secondary' : 'bg-transparent')}
                       >
-                        <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--tx,#1d1d1f)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicle.display_name || 'Tesla'}</span>
-                          {v.vehicle.car_type && <span style={{ fontSize: 11, fontWeight: 500, color: td }}>{v.vehicle.car_type}</span>}
+                        <span className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-[14px] font-semibold text-foreground overflow-hidden text-ellipsis whitespace-nowrap">{v.vehicle.display_name || 'Tesla'}</span>
+                          {v.vehicle.car_type && <span className="text-[11px] font-medium text-muted-foreground">{v.vehicle.car_type}</span>}
                         </span>
                         {isActive && <Icon d={ICON.check} size={16} color={accent} />}
                       </button>
@@ -166,21 +151,9 @@ function DashboardShell() {
           <button
             onClick={toggleTheme}
             aria-label="Toggle theme"
-            style={{
-              width: 42,
-              height: 42,
-              border: '1px solid var(--border,rgba(0,0,0,0.08))',
-              cursor: 'pointer',
-              borderRadius: '50%',
-              background: 'var(--card,#fff)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flex: 'none',
-              marginTop: 4,
-            }}
+            className="w-[42px] h-[42px] border border-border cursor-pointer rounded-full bg-card flex items-center justify-center flex-none mt-1"
           >
-            <Icon d={theme === 'dark' ? ICON.sun : ICON.moon} size={19} color="var(--tx,#1d1d1f)" width={1.8} />
+            <Icon d={theme === 'dark' ? ICON.sun : ICON.moon} size={19} color={THEME.tx} width={1.8} />
           </button>
         </div>
 
@@ -192,13 +165,13 @@ function DashboardShell() {
           <Banner tone="ok" title="Tesla account linked" body="The poller will start collecting data shortly." />
         )}
         {!linked && (
-          <Card radius={18} style={{ marginBottom: 14, padding: '16px 18px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tx,#1d1d1f)' }}>
+          <Card radius={18} className="mb-[14px] px-[18px] py-4 flex flex-wrap items-center justify-between gap-3">
+            <span className="text-[13px] font-semibold text-foreground">
               Tesla account not linked — connect it to start collecting data.
             </span>
             <a
               href="/api/auth/tesla/login"
-              style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: accent, borderRadius: 30, padding: '8px 16px', textDecoration: 'none', whiteSpace: 'nowrap' }}
+              className="text-[13px] font-semibold text-primary-foreground bg-primary rounded-[30px] px-4 py-2 no-underline whitespace-nowrap"
             >
               Link Tesla
             </a>
@@ -209,23 +182,12 @@ function DashboardShell() {
 
         {/* BOTTOM NAV */}
         <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-4 w-[calc(100%-32px)] max-w-[402px] bg-[var(--nav-bg,rgba(255,255,255,0.82))] border border-border rounded-[22px] shadow-[var(--shadow)] py-[9px] px-0.5 flex justify-around z-20"
+          // No clean Tailwind util emits the -webkit- prefix needed for the
+          // frosted-glass nav on iOS Safari, so keep both backdrop filters inline.
           style={{
-            position: 'fixed',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            bottom: 16,
-            width: 'calc(100% - 32px)',
-            maxWidth: 402,
-            background: 'var(--nav-bg,rgba(255,255,255,0.82))',
             backdropFilter: 'saturate(180%) blur(20px)',
             WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-            border: '1px solid var(--border,rgba(0,0,0,0.08))',
-            borderRadius: 22,
-            boxShadow: 'var(--shadow)',
-            padding: '9px 2px',
-            display: 'flex',
-            justifyContent: 'space-around',
-            zIndex: 20,
           }}
         >
           {NAV.map((n) => {
@@ -242,20 +204,9 @@ function DashboardShell() {
                 key={n.key}
                 to={n.to}
                 search={(prev) => prev}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '5px 2px',
-                  flex: 1,
-                  textDecoration: 'none',
-                }}
+                className="border-none bg-transparent cursor-pointer flex flex-col items-center gap-[5px] py-[5px] px-0.5 flex-1 no-underline"
               >
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 24 }}>
+                <span className="flex items-center justify-center h-6">
                   <svg
                     width="22"
                     height="22"
@@ -269,7 +220,7 @@ function DashboardShell() {
                     <path d={n.icon} />
                   </svg>
                 </span>
-                <span style={{ fontSize: 10, fontWeight: active ? 600 : 500, letterSpacing: '0.01em', color: tint }}>
+                <span className={cn('text-[10px] tracking-[0.01em]', active ? 'font-semibold' : 'font-medium')} style={{ color: tint }}>
                   {n.label}
                 </span>
               </Link>
@@ -284,12 +235,12 @@ function DashboardShell() {
 function Banner({ tone, title, body }: { tone: 'error' | 'ok'; title: string; body: string }) {
   const c = tone === 'error' ? '#f43f5e' : '#34c759'
   return (
-    <Card radius={18} style={{ marginBottom: 14, padding: '14px 16px', borderColor: 'rgba(0,0,0,0)' }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, marginTop: 6, flex: 'none' }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tx,#1d1d1f)' }}>{title}</span>
-          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--td,#86868b)', overflowWrap: 'anywhere' }}>{body}</span>
+    <Card radius={18} className="mb-[14px] px-4 py-[14px] border-transparent">
+      <div className="flex gap-3 items-start">
+        <span className="w-2 h-2 rounded-full mt-1.5 flex-none" style={{ background: c }} />
+        <div className="flex flex-col gap-[3px]">
+          <span className="text-[13px] font-semibold text-foreground">{title}</span>
+          <span className="text-[12px] font-medium text-muted-foreground [overflow-wrap:anywhere]">{body}</span>
         </div>
       </div>
     </Card>

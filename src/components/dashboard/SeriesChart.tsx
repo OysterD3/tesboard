@@ -124,7 +124,7 @@ export function SeriesChart({
       onPointerUp={clear}
       onPointerCancel={clear}
       onPointerLeave={clear}
-      style={{ display: 'block', overflow: 'visible', touchAction: 'pan-y', cursor: 'crosshair' }}
+      className="block overflow-visible cursor-crosshair touch-pan-y"
     >
       <defs>
         <clipPath id={clip}>

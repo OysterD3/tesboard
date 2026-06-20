@@ -58,7 +58,7 @@ export function VirtualList<T>({
   // Pre-hydration / SSR: render the full list with the original flex layout.
   if (!mounted) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap }}>
+      <div className="flex flex-col" style={{ gap }}>
         {items.map((item, i) => (
           <div key={getKey(item, i)}>{renderRow(item, i)}</div>
         ))}
@@ -67,17 +67,14 @@ export function VirtualList<T>({
   }
 
   return (
-    <div ref={listRef} style={{ position: 'relative', width: '100%', height: virtualizer.getTotalSize() }}>
+    <div ref={listRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
       {virtualizer.getVirtualItems().map((vi) => (
         <div
           key={vi.key}
           data-index={vi.index}
           ref={virtualizer.measureElement}
+          className="absolute top-0 left-0 w-full"
           style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
             transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)`,
             paddingBottom: gap,
           }}
