@@ -48,7 +48,11 @@ type ChunkResult =
   | { geometry: [number, number][]; confidence: number }
   | { error: 'transient' | 'permanent' }
 
-async function matchChunk(coords: [number, number][], token: string): Promise<ChunkResult> {
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+/** Brief in-call retries for a 429/5xx before giving up as transient (the caller then backs off). */
+const MAX_RETRIES = 1
+
+async function matchChunk(coords: [number, number][], token: string, attempt = 0): Promise<ChunkResult> {
   const path = coords.map(([lat, lng]) => `${lng.toFixed(6)},${lat.toFixed(6)}`).join(';')
   const url =
     `${MAPBOX_MATCH_BASE}/${path}` +
@@ -57,9 +61,22 @@ async function matchChunk(coords: [number, number][], token: string): Promise<Ch
   try {
     res = await fetch(url)
   } catch {
+    if (attempt < MAX_RETRIES) {
+      await sleep(800)
+      return matchChunk(coords, token, attempt + 1)
+    }
     return { error: 'transient' }
   }
-  if (res.status === 429 || res.status >= 500) return { error: 'transient' }
+  // Rate-limited (300 req/min) or a server blip: honor Retry-After, retry once, else transient.
+  if (res.status === 429 || res.status >= 500) {
+    if (attempt < MAX_RETRIES) {
+      const ra = Number(res.headers.get('retry-after'))
+      const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 2000) : 1200
+      await sleep(waitMs)
+      return matchChunk(coords, token, attempt + 1)
+    }
+    return { error: 'transient' }
+  }
   if (!res.ok) return { error: 'permanent' }
   let body: {
     code?: string

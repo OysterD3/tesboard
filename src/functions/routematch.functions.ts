@@ -25,18 +25,18 @@ const MAX_DRIVES = 4
 const MIN_POINTS = 4
 /** Cap fixes sent per drive (≤3 Mapbox chunks); long burst-polled drives get thinned. */
 const MAX_FIXES = 300
-/** Below this Mapbox confidence the match is too unreliable to trust → straight-line fallback. */
-const MIN_CONFIDENCE = 0.3
 
 export interface RouteMatchBackfillResult {
   /** False when MAPBOX_TOKEN is unset — the feature is unavailable; nothing was attempted. */
   configured: boolean
   /** Drives road-matched + stored this run. */
   matched: number
-  /** Drives attempted but left on the straight-line fallback (low confidence / no match / too few fixes). */
+  /** Drives attempted but left on the straight-line fallback (no match / too few fixes). */
   failed: number
   /** Drives still un-attempted after this run. */
   remaining: number
+  /** True if the run stopped early on a transient rate-limit/5xx — caller should wait then retry. */
+  paused: boolean
 }
 
 export const backfillRouteMatch = createServerFn({ method: 'POST' })
@@ -68,7 +68,7 @@ async function setStatus(db: Db, userId: string, id: number, status: string): Pr
 
 async function backfillRouteMatchCore(db: Db, userId: string): Promise<RouteMatchBackfillResult> {
   const token = serverEnv.mapboxToken()
-  if (!token) return { configured: false, matched: 0, failed: 0, remaining: await countRemaining(db, userId) }
+  if (!token) return { configured: false, matched: 0, failed: 0, remaining: await countRemaining(db, userId), paused: false }
 
   const drives = await db
     .select({ id: driveSession.id, vin: driveSession.vin, started_at: driveSession.started_at, ended_at: driveSession.ended_at })
@@ -85,6 +85,7 @@ async function backfillRouteMatchCore(db: Db, userId: string): Promise<RouteMatc
 
   let matched = 0
   let failed = 0
+  let paused = false
   for (const d of drives) {
     const snaps = await db
       .select({ lat: vehicleSnapshot.latitude, lng: vehicleSnapshot.longitude })
@@ -114,17 +115,18 @@ async function backfillRouteMatchCore(db: Db, userId: string): Promise<RouteMatc
 
     const r = await mapMatch(coords, token)
     if (!r.ok) {
-      if (r.transient) break // back off; leave un-attempted for the next call
+      if (r.transient) {
+        paused = true
+        break // rate-limited / blip — leave un-attempted and let the caller retry
+      }
       await setStatus(db, userId, d.id, 'failed')
       failed++
       continue
     }
-    if (r.confidence < MIN_CONFIDENCE) {
-      await setStatus(db, userId, d.id, 'low')
-      failed++
-      continue
-    }
 
+    // Store every successful match. Mapbox reports low confidence on sparse (2-min
+    // cadence) drives even when the road shape is fine, so a confidence floor would
+    // throw away most real matches — a road-shaped line always beats a straight one.
     await db
       .update(driveSession)
       .set({ route_geometry: r.geometry, route_match_status: 'matched', route_matched_at: new Date().toISOString() })
@@ -132,5 +134,5 @@ async function backfillRouteMatchCore(db: Db, userId: string): Promise<RouteMatc
     matched++
   }
 
-  return { configured: true, matched, failed, remaining: await countRemaining(db, userId) }
+  return { configured: true, matched, failed, remaining: await countRemaining(db, userId), paused }
 }

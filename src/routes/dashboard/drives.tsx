@@ -27,6 +27,7 @@ const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 const VIEW_OPTIONS = [
   { label: 'History', value: 'history' as const },
@@ -428,8 +429,9 @@ function SnapToRoadsButton({ isDark, onDone }: { isDark: boolean; onDone: () => 
     setSt({ running: true, matched: 0, remaining: null, done: false, configured: true })
     let matched = 0
     let configured = true
+    let stalls = 0
     try {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 500; i++) {
         const r = await run()
         if (!r.configured) {
           configured = false
@@ -437,7 +439,15 @@ function SnapToRoadsButton({ isDark, onDone }: { isDark: boolean; onDone: () => 
         }
         matched += r.matched
         setSt({ running: true, matched, remaining: r.remaining, done: false, configured: true })
-        if (r.matched + r.failed === 0 || r.remaining === 0) break
+        if (r.remaining === 0) break
+        if (r.matched + r.failed > 0) {
+          stalls = 0
+          await sleep(400) // pace well under Mapbox's 300 req/min
+        } else {
+          // No progress — rate-limited/paused. Back off and retry a few times before giving up.
+          if (++stalls >= 6) break
+          await sleep(8000)
+        }
       }
     } catch {
       /* finalize below */
