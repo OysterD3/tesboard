@@ -1,6 +1,6 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { Segmented } from '../../components/dashboard/primitives'
+import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { LifetimeMap, MapMessage, MapOverlay } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
@@ -12,11 +12,6 @@ export const Route = createFileRoute('/dashboard/charging_/map')({
 
 const dashApi = getRouteApi('/dashboard')
 const COLOR = SECTION.charging
-
-const VIEW_OPTIONS = [
-  { label: 'History', value: 'history' as const },
-  { label: 'Map', value: 'map' as const },
-]
 
 /**
  * Dedicated full-screen charge map (`/dashboard/charging/map`). Un-nested from
@@ -40,17 +35,7 @@ function ChargingMapPage() {
   return (
     <MapOverlay
       onBack={toHistory}
-      topLeft={
-        <Segmented
-          options={VIEW_OPTIONS}
-          value="map"
-          onChange={(v) => {
-            if (v === 'history') toHistory()
-          }}
-          accent={COLOR}
-          isDark={isDark}
-        />
-      }
+      topLeft={<SectionTabs section="charging" value="map" accent={COLOR} isDark={isDark} />}
       caption={
         hasPoints
           ? `${points.length} location${points.length === 1 ? '' : 's'} · ${totalCharges} charge${totalCharges === 1 ? '' : 's'} · charges within 150m merge; tap a place to zoom in`

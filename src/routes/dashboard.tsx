@@ -59,7 +59,6 @@ const NAV = [
   { key: 'drives', to: '/dashboard/drives', exact: false, label: 'Drives', icon: ICON.drives, bolt: false, color: SECTION.drives },
   { key: 'charging', to: '/dashboard/charging', exact: false, label: 'Charging', icon: ICON.charging, bolt: true, color: SECTION.charging },
   { key: 'idles', to: '/dashboard/idles', exact: false, label: 'Idles', icon: ICON.parking, bolt: false, color: SECTION.idles },
-  { key: 'insights', to: '/dashboard/insights', exact: false, label: 'Insights', icon: ICON.insights, bolt: false, color: SECTION.insights },
   { key: 'analytics', to: '/dashboard/analytics', exact: false, label: 'Analytics', icon: ICON.battery, bolt: false, color: SECTION.analytics },
   { key: 'settings', to: '/dashboard/settings', exact: false, label: 'Settings', icon: ICON.settings, bolt: false, color: SECTION.settings },
 ] as const

@@ -64,7 +64,7 @@ export const getDashboardData = createServerFn({ method: 'GET' })
       // timeline) + phantom-drain moved OUT of this every-route loader to keep the
       // per-request SSR CPU under the Free-plan ~10ms cap. They now load lazily in
       // their own routes' loaders: /dashboard/analytics → getAnalyticsData,
-      // /dashboard/battery → getBatteryHealth, /dashboard/insights → getPhantomDrain.
+      // /dashboard/battery → getBatteryHealth, /dashboard/idles/insights → getPhantomDrain.
       const [readiness, drives, charging, rate, geofences] = await Promise.all([
         getDepartureReadinessCore(db, userId, { vin }),
         getDrivesCore(db, userId, { vin }),

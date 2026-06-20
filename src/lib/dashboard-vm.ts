@@ -323,11 +323,14 @@ export interface InsightsVM {
   phantom: { lostKm: number; perDayKm: number; days: number; series: { date: string; lostKm: number }[] } | null
 }
 
+/** Placeholder for callers that don't surface phantom drain (Drives/Charging insights). */
+export const NO_PHANTOM: PhantomDrain = { hasData: false, lostMi: 0, perDayMi: 0, days: 0, series: [] }
+
 export function buildInsights(
   charging: ChargingPayload,
   drives: DrivesPayload,
-  overviewKmOdo: number | null,
-  phantom: PhantomDrain,
+  overviewKmOdo: number | null = null,
+  phantom: PhantomDrain = NO_PHANTOM,
 ): InsightsVM {
   const st = charging.stats
   const hasCharge = st.sessionCount > 0

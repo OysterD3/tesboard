@@ -1,7 +1,7 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
-import { Segmented } from '../../components/dashboard/primitives'
+import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { LifetimeMap, MapMessage, MapOverlay, type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
@@ -14,11 +14,6 @@ export const Route = createFileRoute('/dashboard/drives_/map')({
 
 const dashApi = getRouteApi('/dashboard')
 const COLOR = SECTION.drives
-
-const VIEW_OPTIONS = [
-  { label: 'History', value: 'history' as const },
-  { label: 'Map', value: 'map' as const },
-]
 
 /**
  * Dedicated full-screen route map (`/dashboard/drives/map`). Un-nested from the
@@ -76,17 +71,7 @@ function DrivesMapPage() {
   return (
     <MapOverlay
       onBack={toHistory}
-      topLeft={
-        <Segmented
-          options={VIEW_OPTIONS}
-          value="map"
-          onChange={(v) => {
-            if (v === 'history') toHistory()
-          }}
-          accent={COLOR}
-          isDark={isDark}
-        />
-      }
+      topLeft={<SectionTabs section="drives" value="map" accent={COLOR} isDark={isDark} />}
       caption={
         hasRoutes
           ? `${routesMap!.driveCount} route${routesMap!.driveCount === 1 ? '' : 's'} · ${drivePins.length} start/end place${drivePins.length === 1 ? '' : 's'} · road-matched (drives too GPS-sparse to snap are hidden)`

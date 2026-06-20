@@ -1,6 +1,7 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { BatteryGlyph, Card, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
+import { BatteryGlyph, Card, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { hexToRgba, ICON, SECTION } from '../../components/dashboard/theme'
@@ -8,13 +9,6 @@ import { buildChargingReview, buildSessions, type SessionVM } from '../../lib/da
 import { useDisplayTz } from '../../lib/use-hydrated'
 import { MonthFilter, MonthHeader } from '../../components/dashboard/MonthFilter'
 import { groupByMonth, monthOptions } from '../../lib/month-group'
-
-// History list vs the dedicated full-screen map route. The "Map" option navigates
-// to /dashboard/charging/map rather than flipping in-page state.
-const VIEW_OPTIONS = [
-  { label: 'History', value: 'history' as const },
-  { label: 'Map', value: 'map' as const },
-]
 
 export const Route = createFileRoute('/dashboard/charging')({
   component: ChargingPage,
@@ -71,15 +65,7 @@ function ChargingPage() {
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <ViewTitle>Charging</ViewTitle>
-        <Segmented
-          options={VIEW_OPTIONS}
-          value="history"
-          onChange={(v) => {
-            if (v === 'map') navigate({ to: '/dashboard/charging/map', search: (prev) => prev })
-          }}
-          accent={COLOR}
-          isDark={isDark}
-        />
+        <SectionTabs section="charging" value="history" accent={COLOR} isDark={isDark} />
       </div>
 
       {review.hasData && (

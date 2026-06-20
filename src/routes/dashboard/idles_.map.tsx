@@ -1,6 +1,6 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { Segmented } from '../../components/dashboard/primitives'
+import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import { LifetimeMap, MapMessage, MapOverlay, type MapPoint } from '../../components/dashboard/LifetimeMap'
 import { useDash } from '../../components/dashboard/DashboardProvider'
 import { SECTION } from '../../components/dashboard/theme'
@@ -13,11 +13,6 @@ export const Route = createFileRoute('/dashboard/idles_/map')({
 
 const dashApi = getRouteApi('/dashboard')
 const COLOR = SECTION.idles
-
-const VIEW_OPTIONS = [
-  { label: 'History', value: 'history' as const },
-  { label: 'Map', value: 'map' as const },
-]
 
 /**
  * Dedicated full-screen route map (`/dashboard/idles/map`). Un-nested from the
@@ -47,17 +42,7 @@ function IdlesMapPage() {
   return (
     <MapOverlay
       onBack={toHistory}
-      topLeft={
-        <Segmented
-          options={VIEW_OPTIONS}
-          value="map"
-          onChange={(v) => {
-            if (v === 'history') toHistory()
-          }}
-          accent={COLOR}
-          isDark={isDark}
-        />
-      }
+      topLeft={<SectionTabs section="idles" value="map" accent={COLOR} isDark={isDark} />}
       caption={
         hasPins
           ? `${idles.length} idle${idles.length === 1 ? '' : 's'} · ${pins.length} parked place${pins.length === 1 ? '' : 's'}`

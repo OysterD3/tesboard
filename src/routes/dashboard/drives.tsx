@@ -1,6 +1,7 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { BatteryGlyph, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
+import { BatteryGlyph, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import type { DriveVM } from '../../lib/dashboard-vm'
 import type { Units } from '../../lib/units'
 import { VirtualList } from '../../components/dashboard/VirtualList'
@@ -20,13 +21,6 @@ const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.drives
-
-// History list vs the dedicated full-screen map route. The "Map" option navigates
-// to /dashboard/drives/map rather than flipping in-page state.
-const VIEW_OPTIONS = [
-  { label: 'History', value: 'history' as const },
-  { label: 'Map', value: 'map' as const },
-]
 
 function DrivesPage() {
   const { drives } = dashApi.useLoaderData()
@@ -59,15 +53,7 @@ function DrivesPage() {
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <ViewTitle>Drives</ViewTitle>
-        <Segmented
-          options={VIEW_OPTIONS}
-          value="history"
-          onChange={(v) => {
-            if (v === 'map') navigate({ to: '/dashboard/drives/map', search: (prev) => prev })
-          }}
-          accent={COLOR}
-          isDark={isDark}
-        />
+        <SectionTabs section="drives" value="history" accent={COLOR} isDark={isDark} />
       </div>
 
       <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />

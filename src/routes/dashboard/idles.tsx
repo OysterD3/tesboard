@@ -1,6 +1,7 @@
 import { createFileRoute, getRouteApi, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { BatteryGlyph, EmptyCard, Icon, Segmented, ViewTitle } from '../../components/dashboard/primitives'
+import { BatteryGlyph, EmptyCard, Icon, ViewTitle } from '../../components/dashboard/primitives'
+import { SectionTabs } from '../../components/dashboard/SectionTabs'
 import type { IdleVM } from '../../lib/idles-vm'
 import { VirtualList } from '../../components/dashboard/VirtualList'
 import { useDash } from '../../components/dashboard/DashboardProvider'
@@ -18,11 +19,6 @@ const dashApi = getRouteApi('/dashboard')
 const TD = 'var(--td,#86868b)'
 const TX = 'var(--tx,#1d1d1f)'
 const COLOR = SECTION.idles
-
-const VIEW_OPTIONS = [
-  { label: 'History', value: 'history' as const },
-  { label: 'Map', value: 'map' as const },
-]
 
 function IdlesPage() {
   const { drives, overview, activeVin } = dashApi.useLoaderData()
@@ -61,15 +57,7 @@ function IdlesPage() {
     <div className="evd-view" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <ViewTitle>Idles</ViewTitle>
-        <Segmented
-          options={VIEW_OPTIONS}
-          value="history"
-          onChange={(v) => {
-            if (v === 'map') navigate({ to: '/dashboard/idles/map', search: (prev) => prev })
-          }}
-          accent={COLOR}
-          isDark={isDark}
-        />
+        <SectionTabs section="idles" value="history" accent={COLOR} isDark={isDark} />
       </div>
 
       <MonthFilter months={months} value={month} onChange={setMonth} color={COLOR} isDark={isDark} />
