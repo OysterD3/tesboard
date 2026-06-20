@@ -3,7 +3,7 @@
  * snapshots (the Fleet API has no native trip endpoint), read here from Postgres.
  */
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { withDb, type Db } from '../server/db'
@@ -272,30 +272,34 @@ export const getDriveRoutes = createServerFn({ method: 'GET' })
         .filter((d): d is { started_at: string; ended_at: string } => d.ended_at != null)
         .map((d) => ({ startMs: new Date(d.started_at).getTime(), endMs: new Date(d.ended_at).getTime() }))
 
-      // GPS fixes within the overall drive span, oldest-first, bounded.
-      const snapRows = windows.length
-        ? await db
-            .select({ lat: vehicleSnapshot.latitude, lng: vehicleSnapshot.longitude, at: vehicleSnapshot.recorded_at })
-            .from(vehicleSnapshot)
-            .where(
-              and(
-                eq(vehicleSnapshot.user_id, userId),
-                vin ? eq(vehicleSnapshot.vin, vin) : undefined,
-                isNotNull(vehicleSnapshot.latitude),
-                isNotNull(vehicleSnapshot.longitude),
-                gte(vehicleSnapshot.recorded_at, new Date(windows[0].startMs).toISOString()),
-                lte(vehicleSnapshot.recorded_at, new Date(windows[windows.length - 1].endMs).toISOString()),
-              ),
-            )
-            .orderBy(asc(vehicleSnapshot.recorded_at))
-            .limit(80_000)
+      // GPS fixes within the overall drive span. Burst polling makes drives dense
+      // (a fix every ~20-30s), so a lifetime map would otherwise pull tens of
+      // thousands of rows into the Worker. Thin to ~1 fix / 2 min and return epoch
+      // ms straight from Postgres (no per-row Date parsing) — the Worker handles a
+      // few thousand rows, well within its limits, and the map stays plenty detailed
+      // at country scale. (DISTINCT ON keeps the earliest fix per 120 s bucket.)
+      const startIso = new Date(windows[0].startMs).toISOString()
+      const endIso = new Date(windows[windows.length - 1].endMs).toISOString()
+      const vinClause = vin ? sql`and ${vehicleSnapshot.vin} = ${vin}` : sql``
+      const thinned = windows.length
+        ? ((await db.execute(sql`
+            select distinct on (floor(extract(epoch from ${vehicleSnapshot.recorded_at}) / 120))
+              ${vehicleSnapshot.latitude} as lat,
+              ${vehicleSnapshot.longitude} as lng,
+              extract(epoch from ${vehicleSnapshot.recorded_at}) * 1000 as at_ms
+            from ${vehicleSnapshot}
+            where ${vehicleSnapshot.user_id} = ${userId}
+              and ${vehicleSnapshot.latitude} is not null
+              and ${vehicleSnapshot.longitude} is not null
+              and ${vehicleSnapshot.recorded_at} >= ${startIso}
+              and ${vehicleSnapshot.recorded_at} <= ${endIso}
+              ${vinClause}
+            order by floor(extract(epoch from ${vehicleSnapshot.recorded_at}) / 120), ${vehicleSnapshot.recorded_at}
+            limit 20000
+          `)) as unknown as Array<{ lat: number; lng: number; at_ms: number }>)
         : []
 
-      const snaps = snapRows.map((r) => ({
-        lat: r.lat as number,
-        lng: r.lng as number,
-        atMs: new Date(r.at).getTime(),
-      }))
+      const snaps = thinned.map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), atMs: Number(r.at_ms) }))
       const routes = groupRoutes(snaps, windows, { maxPerPath: 60, maxPaths: 1500 })
       return { routes, driveCount: routes.length }
     }),
