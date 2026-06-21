@@ -18,7 +18,7 @@ export interface Units {
   eff: EffUnit
 }
 
-export const DEFAULT_UNITS: Units = { dist: 'mi', temp: 'f', pres: 'psi', eff: 'mi' }
+export const DEFAULT_UNITS: Units = { dist: 'km', temp: 'c', pres: 'bar', eff: 'whkm' }
 
 export const MI_PER_KM = 1 / 1.60934
 

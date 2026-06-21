@@ -18,13 +18,21 @@ import type { SnapshotInput } from '@core/sessionize'
 export type FieldPatch = Partial<SnapshotInput>
 
 // ── clamping / validation helpers ────────────────────────────────────────────
+/** Strip surrounding JSON double-quotes. Tesla fleet-telemetry streams ENUM/string
+ *  values JSON-quoted (e.g. the raw MQTT payload for Gear is literally `"ShiftStateD"`),
+ *  while numbers/bools arrive bare. Without this every enum mapper sees the quotes
+ *  and falls through to its default (the cause of shift_state/charging_state always null). */
+export function unquote(v: unknown): string {
+  return String(v).trim().replace(/^"+|"+$/g, '').trim()
+}
+
 /** Coerce to a finite number or null. Strings (typed-off) and numbers both ok. */
 export function toNum(v: unknown): number | null {
   if (v == null) return null
   if (typeof v === 'number') return Number.isFinite(v) ? v : null
   if (typeof v === 'boolean') return v ? 1 : 0
   if (typeof v === 'string') {
-    const t = v.trim()
+    const t = unquote(v)
     if (t === '') return null
     const n = Number(t)
     return Number.isFinite(n) ? n : null
@@ -38,7 +46,7 @@ export function toBool(v: unknown): boolean | null {
   if (typeof v === 'boolean') return v
   if (typeof v === 'number') return Number.isFinite(v) ? v !== 0 : null
   if (typeof v === 'string') {
-    const t = v.trim().toLowerCase()
+    const t = unquote(v).toLowerCase()
     if (t === 'true' || t === '1') return true
     if (t === 'false' || t === '0') return false
   }
@@ -66,12 +74,12 @@ export function nonNeg(v: unknown): number | null {
  * "not charging" and triggers (debounced) close.
  *   Charging / Starting → 'Charging'
  *   Complete / Stopped / NoPower / Disconnected → 'Stopped'
- * Values may arrive bare ('Charging') or prefixed
- * ('DetailedChargeStateCharging') depending on proto encoding — handle both.
+ * Values arrive JSON-quoted and prefixed ('"DetailedChargeStateCharging"') or
+ * bare ('Charging') depending on proto encoding — handle both.
  */
 export function mapDetailedChargeState(v: unknown): string | null {
   if (v == null) return null
-  const s = String(v).trim()
+  const s = unquote(v)
   if (s === '') return null
   const tail = s.replace(/^DetailedChargeState/i, '').toLowerCase()
   switch (tail) {
@@ -92,13 +100,14 @@ export function mapDetailedChargeState(v: unknown): string | null {
 /**
  * Gear enum → Tesla-style `shift_state` ('P'|'R'|'N'|'D'|null). The sessionizer
  * treats D/R/N as driving and P/null as parked. SNA/Invalid → null (parked).
- * Accepts bare ('D'), word ('Drive'), or prefixed ('GearD').
+ * Tesla streams it JSON-quoted with a ShiftState prefix ('"ShiftStateD"'); also
+ * accepts bare ('D'), word ('Drive'), or 'GearD'.
  */
 export function mapGear(v: unknown): 'P' | 'R' | 'N' | 'D' | null {
   if (v == null) return null
-  const s = String(v).trim()
+  const s = unquote(v)
   if (s === '') return null
-  const tail = s.replace(/^Gear/i, '').toUpperCase()
+  const tail = s.replace(/^(ShiftState|Gear)/i, '').toUpperCase()
   switch (tail) {
     case 'P':
     case 'PARK':

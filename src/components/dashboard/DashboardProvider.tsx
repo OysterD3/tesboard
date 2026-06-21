@@ -78,10 +78,10 @@ function readUnits(): Units {
     if (!raw) return DEFAULT_UNITS
     const p = JSON.parse(raw) as Partial<Units>
     return {
-      dist: (p.dist === 'km' ? 'km' : 'mi') as DistUnit,
-      temp: (p.temp === 'c' ? 'c' : 'f') as TempUnit,
-      pres: (p.pres === 'bar' ? 'bar' : 'psi') as PresUnit,
-      eff: (p.eff === 'whkm' ? 'whkm' : 'mi') as EffUnit,
+      dist: (p.dist === 'mi' ? 'mi' : 'km') as DistUnit,
+      temp: (p.temp === 'f' ? 'f' : 'c') as TempUnit,
+      pres: (p.pres === 'psi' ? 'psi' : 'bar') as PresUnit,
+      eff: (p.eff === 'mi' ? 'mi' : 'whkm') as EffUnit,
     }
   } catch {
     return DEFAULT_UNITS

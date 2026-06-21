@@ -58,6 +58,9 @@ describe('enum maps', () => {
     expect(mapDetailedChargeState('NoPower')).toBe('Stopped')
     expect(mapDetailedChargeState('Disconnected')).toBe('Stopped')
     expect(mapDetailedChargeState('')).toBeNull()
+    // Tesla streams it JSON-quoted with the enum prefix (the real MQTT payload).
+    expect(mapDetailedChargeState('"DetailedChargeStateCharging"')).toBe('Charging')
+    expect(mapDetailedChargeState('"DetailedChargeStateNoPower"')).toBe('Stopped')
   })
 
   it('mapGear maps to P/R/N/D/null', () => {
@@ -69,6 +72,12 @@ describe('enum maps', () => {
     expect(mapGear('SNA')).toBeNull()
     expect(mapGear('Invalid')).toBeNull()
     expect(mapGear('')).toBeNull()
+    // Tesla streams it JSON-quoted with the ShiftState prefix (the real MQTT payload).
+    expect(mapGear('"ShiftStateD"')).toBe('D')
+    expect(mapGear('"ShiftStateP"')).toBe('P')
+    expect(mapGear('"ShiftStateR"')).toBe('R')
+    expect(mapGear('"ShiftStateN"')).toBe('N')
+    expect(mapGear('"ShiftStateInvalid"')).toBeNull()
   })
 })
 
