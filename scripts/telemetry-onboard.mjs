@@ -41,6 +41,8 @@
  * resolved env → .dev.vars → .env. Run it in YOUR terminal so the secret never hits chat.
  */
 import { readFileSync } from 'node:fs'
+import { createDecipheriv } from 'node:crypto'
+import postgres from 'postgres'
 
 // ── flag + env resolution (same pattern as tesla-register.mjs) ──────────────
 function flag(name) {
@@ -243,6 +245,60 @@ async function getPartnerToken() {
   if (!token) fail(`Partner token response had no access_token:\n  ${text}`)
   console.log('  ✓ got partner token\n')
   return token
+}
+
+/** AES-256-GCM decrypt — mirrors src/server/tesla/crypto.ts: base64(iv12||tag16||ct). */
+function decryptToken(payloadB64, keyB64) {
+  const keyBuf = Buffer.from(keyB64, 'base64')
+  if (keyBuf.length !== 32) fail('TOKEN_ENCRYPTION_KEY must be 32 bytes, base64-encoded.')
+  const buf = Buffer.from(payloadB64, 'base64')
+  const iv = buf.subarray(0, 12)
+  const tag = buf.subarray(12, 28)
+  const ct = buf.subarray(28)
+  const d = createDecipheriv('aes-256-gcm', keyBuf, iv)
+  d.setAuthTag(tag)
+  return Buffer.concat([d.update(ct), d.final()]).toString('utf8')
+}
+
+/**
+ * Read + decrypt the stored Tesla USER access token from the DB. The config
+ * push/get/delete are VEHICLE endpoints — they need the vehicle owner's user
+ * token, NOT the partner (client_credentials) token (which has no vehicles, so
+ * Tesla returns "VIN not_found"). Single-user app → the one tesla_token row.
+ * Read-only: we never refresh here, so the app's refresh-token chain is untouched.
+ */
+async function getUserAccessToken() {
+  if (dryRun) return 'DRY_RUN_USER_TOKEN'
+  const conn = resolve('DIRECT_URL') || resolve('DATABASE_URL')
+  const encKey = resolve('TOKEN_ENCRYPTION_KEY')
+  if (!conn) fail('Need DIRECT_URL or DATABASE_URL (Supabase :5432) to read the stored user token.')
+  if (!encKey) fail('Need TOKEN_ENCRYPTION_KEY (env/.dev.vars) to decrypt the stored user token.')
+  console.log('• Reading the stored Tesla USER token from the DB…')
+  const sql = postgres(conn, { ssl: 'require', prepare: false, max: 1, idle_timeout: 5 })
+  try {
+    const rows = await sql`
+      select access_token_enc, access_token_expires_at from tesla_token limit 1`
+    if (!rows.length) {
+      fail(
+        'No Tesla token in the DB. Link your Tesla account first: log in to the dashboard,\n' +
+          '  then visit https://' + (domain || 'YOUR_DOMAIN') + '/api/auth/tesla/login',
+      )
+    }
+    let userToken
+    try {
+      userToken = decryptToken(rows[0].access_token_enc, encKey)
+    } catch (e) {
+      fail(`Could not decrypt the stored token (${e.message}). Is TOKEN_ENCRYPTION_KEY the one prod uses?`)
+    }
+    const exp = new Date(rows[0].access_token_expires_at).getTime()
+    if (Number.isFinite(exp) && exp < Date.now()) {
+      console.log('  ⚠ stored access token looks EXPIRED — open the dashboard once to refresh it, then retry.')
+    }
+    console.log('  ✓ got user token\n')
+    return userToken
+  } finally {
+    await sql.end({ timeout: 5 })
+  }
 }
 
 async function registerPartner(token) {
@@ -448,7 +504,8 @@ async function deleteConfig(token) {
 const token = await getPartnerToken()
 
 if (doDelete) {
-  await deleteConfig(token)
+  const userToken = await getUserAccessToken()
+  await deleteConfig(userToken)
   console.log('✓ Teardown complete for', vin)
   process.exit(0)
 }
@@ -456,9 +513,11 @@ if (doDelete) {
 await registerPartner(token)
 printPairingInstructions()
 
+// Vehicle endpoints (push/verify) need the USER token, not the partner token.
+const userToken = await getUserAccessToken()
 const configBody = buildTelemetryConfigBody()
-await pushConfig(configBody, token)
-await verifyConfig(token)
+await pushConfig(configBody, userToken)
+await verifyConfig(userToken)
 
 console.log('✓ Telemetry onboarding complete for', vin)
 console.log('  Next: bring up telemetry/docker-compose.yml (fleet-telemetry + mosquitto + adapter)')
