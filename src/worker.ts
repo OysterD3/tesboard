@@ -14,6 +14,8 @@ import startEntry from '@tanstack/react-start/server-entry'
 import { runPollCycle } from './server/poller'
 import { reconcileAllUsers } from './server/reconcile'
 import { mergeChargeFragmentsAllUsers } from './server/charge-merge'
+import { checkLiveness } from './server/liveness'
+import { withDb } from './server/db'
 import { bridgeEnv } from './server/env-bridge'
 
 // Durable Object class must be exported from the worker's main module.
@@ -58,6 +60,15 @@ export default {
           // failure here just retries next hour. Isolated from reconcile's result.
           try {
             await mergeChargeFragmentsAllUsers()
+          } catch {
+            /* best-effort; next hourly tick retries */
+          }
+          // Drive-granular liveness: flag any VIN that is online/mid-session but
+          // has gone silent (matters most in telemetry mode, which has no REST
+          // fallback). Best-effort + its own short-lived db client, isolated from
+          // reconcile/merge above.
+          try {
+            await withDb((db) => checkLiveness(db))
           } catch {
             /* best-effort; next hourly tick retries */
           }

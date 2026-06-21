@@ -1,0 +1,26 @@
+{
+  "_comment_mtls": "mTLS: use_default_eng_ca is intentionally UNSET so the embedded PROD Tesla CA verifies the car's client cert (RequireAndVerifyClientCert). Do NOT set use_default_eng_ca. tls.server_cert/server_key is the server's OWN public TLS cert (the FQDN the car connects to); the same cert's full-chain PEM goes into the Tesla fleet CLI config.ca. Only set tls.ca_file if Tesla provides an extra CA.",
+  "host": "0.0.0.0",
+  "port": 443,
+  "log_level": "info",
+  "json_log_enable": true,
+  "namespace": "tesla_telemetry",
+  "reliable_ack": false,
+  "transmit_decoded_records": true,
+  "monitoring": { "prometheus_metrics_port": 9090 },
+  "rate_limit": { "enabled": true, "message_interval_time": 30, "message_limit": 1000 },
+  "records": { "V": ["mqtt"], "alerts": ["mqtt"], "errors": ["mqtt"], "connectivity": ["mqtt"] },
+  "mqtt": {
+    "broker": "tcp://mosquitto:1883",
+    "client_id": "fleet-telemetry",
+    "topic_base": "tesla",
+    "qos": 1,
+    "connect_timeout_ms": 30000,
+    "publish_timeout_ms": 2500,
+    "keep_alive_seconds": 30
+  },
+  "tls": {
+    "server_cert": "/etc/certs/server/tls.crt",
+    "server_key": "/etc/certs/server/tls.key"
+  }
+}

@@ -75,7 +75,7 @@ A **blank TanStack Start** application (React, file-based router, SSR-capable). 
 
 ## Tesla Dashboard (the actual product)
 
-Full design + setup: **`docs/design/tesla-dashboard.md`**. This section is the quick durable map.
+This section is the quick durable map.
 
 ### What it is
 A **read-only** personal dashboard for a Tesla on the official **Fleet API**. MVP: charging history, per-charge stats (cost + drivable range), drive records. **No vehicle commands** (read-only avoids the signed-command protocol + virtual-key pairing).
@@ -129,7 +129,7 @@ A multi-agent adversarial review (`tesla-dashboard-review` workflow) confirmed 1
 
 ## TeslaMate parity & migration (added 2026-06-15)
 
-Full gap analysis + design: **`docs/design/teslamate-parity.md`**. Brought tesboard toward TeslaMate feature parity AND added a one-way TeslaMate→tesboard importer. The `PACK_KWH = 75` deferral is **resolved** — pack size + a derived efficiency factor are now per-`vehicle` columns.
+Brought tesboard toward TeslaMate feature parity AND added a one-way TeslaMate→tesboard importer. The `PACK_KWH = 75` deferral is **resolved** — pack size + a derived efficiency factor are now per-`vehicle` columns.
 
 ### What was built (all typechecks + builds + `wrangler deploy --dry-run` clean; 42 unit tests pass via `pnpm test`)
 - **Schema (`drizzle/0003_*`, additive, RLS-on):** `vehicle` gained `model/trim_badging/marketing_name/exterior_color/wheel_type/spoiler_type/pack_kwh/efficiency_wh_per_mi/is_lfp/free_supercharging/display_priority`; `drive_session` + `charge_session` gained range/temp/power aggregates + `import_source`/`source_pk` + partial-unique import keys; `vehicle_snapshot` gained `charger_voltage/charger_actual_current/charger_phases/power_kw/elevation_m/source_drive_id/source_charge_id/import_source/source_pk`; **new tables** `geofence`, `address`, `vehicle_state`, `software_update`, `import_batch`, `import_pk_map`. **Run `pnpm db:migrate` (DIRECT_URL) to apply — not yet applied to the live DB.**

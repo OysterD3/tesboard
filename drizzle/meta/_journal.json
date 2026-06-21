@@ -43,6 +43,13 @@
       "when": 1781931921004,
       "tag": "0005_gray_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782015078964,
+      "tag": "0006_shiny_starbolt",
+      "breakpoints": true
     }
   ]
 }

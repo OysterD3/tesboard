@@ -14,6 +14,7 @@
     "cf-typegen": "wrangler types",
     "user:create": "node scripts/create-user.mjs",
     "tesla:register": "node scripts/tesla-register.mjs",
+    "telemetry:onboard": "node scripts/telemetry-onboard.mjs",
     "import:teslamate": "node scripts/import-teslamate.mjs",
     "import:tessie": "node scripts/import-tessie.mjs",
     "import:quickcharge": "node scripts/import-quickcharge.mjs",

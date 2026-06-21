@@ -95,6 +95,10 @@ export const vehicle = pgTable(
     is_lfp: boolean('is_lfp').notNull().default(false),
     free_supercharging: boolean('free_supercharging').notNull().default(false),
     display_priority: integer('display_priority').notNull().default(1),
+    // Drive-granular liveness: the recorded_at of the most recent ingested
+    // snapshot (poller OR telemetry adapter). checkLiveness flags a VIN that is
+    // online/mid-session but has gone silent past LIVENESS_SILENCE_MIN.
+    last_ingest_at: ts('last_ingest_at'),
     created_at: ts('created_at').notNull().defaultNow(),
     updated_at: ts('updated_at').notNull().defaultNow(),
   },

@@ -1,0 +1,31 @@
+# tesboard Fleet Telemetry stack (self-hosted, opt-in `INGEST_MODE=telemetry`).
+# Three containers on a single internal compose network. ONLY port 443 is published.
+# See ./README.md and docs/guides/telemetry-aliyun-sg-setup.md for full setup.
+services:
+  fleet-telemetry:
+    # Tesla's PREBUILT image — do NOT fork/vendor the Go source.
+    # PLACEHOLDER tag: pin a concrete version from https://hub.docker.com/r/tesla/fleet-telemetry/tags
+    # (never use :latest in prod).
+    image: tesla/fleet-telemetry:PLACEHOLDER_PINNED_TAG
+    command: ["-config=/etc/fleet-telemetry/config.json"]
+    ports: ["443:443"]                          # ONLY port exposed publicly (mTLS WebSocket from the car)
+    volumes:
+      - ./config/config.json:/etc/fleet-telemetry/config.json:ro
+      - ./certs/server:/etc/certs/server:ro     # tls.crt + tls.key (Let's Encrypt / your CA)
+    depends_on: [mosquitto]
+    restart: unless-stopped
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    # NO ports: published — broker stays on the compose network (loopback-equivalent).
+    restart: unless-stopped
+  adapter:
+    # Build context is the REPO ROOT (..) so the adapter can bundle the shared
+    # src/server/* sessionization it imports; the Dockerfile lives under telemetry/adapter.
+    build:
+      context: ..
+      dockerfile: telemetry/adapter/Dockerfile
+    env_file: ./adapter/.env                     # DIRECT_URL, MQTT_URL=tcp://mosquitto:1883, TOPIC_BASE
+    depends_on: [mosquitto]
+    restart: unless-stopped

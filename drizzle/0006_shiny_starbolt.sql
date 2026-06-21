@@ -1,0 +1,1 @@
+ALTER TABLE "vehicle" ADD COLUMN "last_ingest_at" timestamp with time zone;

@@ -76,6 +76,20 @@ export const serverEnv = {
     driveS: numOr('BURST_POLL_DRIVE_S', 20),
     chargeS: numOr('BURST_POLL_CHARGE_S', 30),
   }),
+  // Ingest mode. 'polling' (default) = the CF poll cron reads vehicle_data and
+  // sessionizes. 'telemetry' = the poll cron no-ops; a self-hosted Fleet
+  // Telemetry adapter ingests instead (reusing the same sessionization). Reconcile
+  // + UI run unchanged in both modes.
+  ingestMode: (): 'polling' | 'telemetry' =>
+    optional('INGEST_MODE', 'polling').toLowerCase() === 'telemetry' ? 'telemetry' : 'polling',
+  // Idle-backoff: skip the billable vehicle_data read for an online-but-parked car
+  // until `idleMin` minutes elapse, unless it was active within `graceMin`. The big
+  // polling-cost saver. Default ON (set IDLE_BACKOFF=off to restore flat polling).
+  idleBackoff: (): { enabled: boolean; idleMin: number; graceMin: number } => ({
+    enabled: optional('IDLE_BACKOFF', 'on').toLowerCase() !== 'off',
+    idleMin: numOr('IDLE_BACKOFF_MIN', 30),
+    graceMin: numOr('ACTIVE_GRACE_MIN', 10),
+  }),
 }
 
 /** Tesla's well-known OAuth endpoints (region-independent). */

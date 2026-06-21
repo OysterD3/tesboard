@@ -27,3 +27,11 @@ wrangler.jsonc
 .idea/
 .claude/
 .agents/
+
+# Local working docs. The docs/ folder itself stays tracked so future
+# public-facing docs (and docs/screenshots/, used by the README) stay
+# committable; only the current working/planning material is ignored.
+docs/brainstorming/
+docs/specs/
+docs/guides/
+docs/design/

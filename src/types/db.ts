@@ -38,7 +38,7 @@ export type ChargeLocationType = 'home' | 'away' | 'supercharger' | 'unknown'
 export type BillingType = 'per_kwh' | 'per_minute' | 'per_session'
 export type VehicleStateKind = 'online' | 'asleep' | 'offline' | 'driving' | 'charging'
 
-export type AnomalyType = 'slow_charge' | 'efficiency_drop'
+export type AnomalyType = 'slow_charge' | 'efficiency_drop' | 'telemetry_silent'
 export type AnomalySeverity = 'info' | 'warning'
 
 export interface TeslaAccount {

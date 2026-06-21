@@ -1,0 +1,4 @@
+certs/
+adapter/.env
+adapter/node_modules
+adapter/dist

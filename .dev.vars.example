@@ -69,3 +69,19 @@ MAPBOX_TOKEN=
 BURST_POLL=off
 BURST_POLL_DRIVE_S=20
 BURST_POLL_CHARGE_S=30
+
+# --- Dual-mode ingest (optional) ---
+# INGEST_MODE: "polling" (default) = the CF poll cron reads vehicle_data and
+# sessionizes. "telemetry" = the poll cron no-ops; a self-hosted Fleet Telemetry
+# adapter ingests instead (reusing the same sessionization). Reconcile + UI run
+# unchanged in both modes.
+INGEST_MODE=polling
+# Idle-backoff (the big polling-cost saver): skip the billable vehicle_data read
+# for an online-but-parked car until IDLE_BACKOFF_MIN minutes elapse, unless it
+# was active within ACTIVE_GRACE_MIN. "off" restores flat polling.
+IDLE_BACKOFF=on
+IDLE_BACKOFF_MIN=30
+ACTIVE_GRACE_MIN=10
+# Drive-granular liveness: flag a VIN online/mid-session but silent past this many
+# minutes (checked on the hourly reconcile cron).
+LIVENESS_SILENCE_MIN=15

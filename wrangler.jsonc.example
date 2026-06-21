@@ -72,6 +72,21 @@
     // ~20s/30s polling while driving/charging via the POLLER Durable Object above.
     "BURST_POLL": "off",
     "BURST_POLL_DRIVE_S": "20",
-    "BURST_POLL_CHARGE_S": "30"
+    "BURST_POLL_CHARGE_S": "30",
+
+    // Ingest mode: "polling" (default, zero-setup) or "telemetry" (opt-in, self-hosted
+    // Fleet Telemetry — see docs/guides/telemetry-aliyun-sg-setup.md). In telemetry mode
+    // the poll cron no-ops; reconcile + the UI run unchanged in both modes.
+    "INGEST_MODE": "polling",
+
+    // Idle-backoff (polling mode): skip the billable vehicle_data read for parked/asleep
+    // cars so a 1-car deployment stays under the ~$10/mo Fleet API credit. "on" by default.
+    "IDLE_BACKOFF": "on",
+    "IDLE_BACKOFF_MIN": "30",   // minutes between reads while parked/asleep
+    "ACTIVE_GRACE_MIN": "10",   // keep 2-min cadence this long after last activity
+
+    // Liveness: raise a `telemetry_silent` anomaly if an online VIN goes silent this many
+    // minutes (the hourly cron backstop; telemetry mode also flags on adapter disconnect).
+    "LIVENESS_SILENCE_MIN": "15"
   }
 }

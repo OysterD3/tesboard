@@ -1,0 +1,21 @@
+# Build context for the telemetry adapter is the repo root (telemetry/docker-compose.yml
+# → build.context: ..). Keep the context small + never ship secrets into the image.
+# Only src/ + telemetry/ are actually needed by the adapter Dockerfile.
+**/node_modules
+**/dist
+.git
+.github
+.wrangler
+.output
+.tanstack
+.vinxi
+.nitro
+.dev.vars
+.env
+**/.env
+secrets
+telemetry/certs
+docs
+dist-ssr
+*.local
+.DS_Store

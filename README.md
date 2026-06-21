@@ -230,7 +230,6 @@ Cloudflare's minimum cron granularity is **1 minute**. The default `*/2 * * * *`
 
 ## Architecture & deeper docs
 
-- **`docs/design/tesla-dashboard.md`** — full design: data model, Tesla API surface, the poller/sessionization engine, risks, and the feature roadmap.
 - **`CLAUDE.md` / `AGENTS.md`** — durable project context for AI coding agents (Claude Code, etc.).
 
 ---
