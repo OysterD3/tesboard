@@ -14,6 +14,8 @@ todos.json
 
 # Tesla key material — NEVER commit the private key
 secrets/
+# tesla-http-proxy local TLS material (generated during telemetry onboarding)
+proxy-tls-*.pem
 
 # Cloudflare local dev secrets
 .dev.vars
