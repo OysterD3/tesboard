@@ -102,6 +102,16 @@ export interface SnapshotInput {
   importSource?: string // defaults to 'live'
 }
 
+/**
+ * Coerce a value for an INTEGER column: Tesla REST sends integers, but Fleet
+ * Telemetry sends sub-unit floats (e.g. SOC 60.325) that Postgres rejects for an
+ * `integer` column (battery_level, usable_battery_level, charger_*). Round; null
+ * and non-finite stay null.
+ */
+function intColumn(v: number | null): number | null {
+  return v == null || !Number.isFinite(v) ? null : Math.round(v)
+}
+
 export async function insertSnapshot(
   db: Db,
   userId: string,
@@ -114,8 +124,8 @@ export async function insertSnapshot(
       user_id: userId,
       recorded_at: snap.recordedAt,
       odometer: snap.odometer,
-      battery_level: snap.battery_level,
-      usable_battery_level: snap.usable_battery_level,
+      battery_level: intColumn(snap.battery_level),
+      usable_battery_level: intColumn(snap.usable_battery_level),
       battery_range: snap.battery_range,
       est_battery_range: snap.est_battery_range,
       charge_energy_added: snap.charge_energy_added,
@@ -131,9 +141,9 @@ export async function insertSnapshot(
       latitude: snap.latitude,
       longitude: snap.longitude,
       speed: snap.speed,
-      charger_voltage: snap.charger_voltage,
-      charger_actual_current: snap.charger_actual_current,
-      charger_phases: snap.charger_phases,
+      charger_voltage: intColumn(snap.charger_voltage),
+      charger_actual_current: intColumn(snap.charger_actual_current),
+      charger_phases: intColumn(snap.charger_phases),
       power_kw: snap.power_kw,
       sentry_mode: snap.sentry_mode,
       is_climate_on: snap.is_climate_on,
