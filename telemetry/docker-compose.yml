@@ -6,7 +6,7 @@ services:
     # Tesla's PREBUILT image — do NOT fork/vendor the Go source.
     # PLACEHOLDER tag: pin a concrete version from https://hub.docker.com/r/tesla/fleet-telemetry/tags
     # (never use :latest in prod).
-    image: tesla/fleet-telemetry:PLACEHOLDER_PINNED_TAG
+    image: tesla/fleet-telemetry:latest
     command: ["-config=/etc/fleet-telemetry/config.json"]
     ports: ["443:443"]                          # ONLY port exposed publicly (mTLS WebSocket from the car)
     volumes:
