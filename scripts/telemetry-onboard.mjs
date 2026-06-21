@@ -319,7 +319,7 @@ function buildTelemetryConfigBody() {
   if (!ca.includes('BEGIN CERTIFICATE')) {
     fail(`--ca-file "${caFile}" does not look like a PEM certificate chain (no BEGIN CERTIFICATE).`)
   }
-  const exp = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60 // now + 365d (unix seconds)
+  const exp = Math.floor(Date.now() / 1000) + 350 * 24 * 60 * 60 // now + 350d (Tesla caps exp at ~now+364d; stay safely under)
   // EXACT body from spec §6. ⚠️ Verify against developer.tesla.com in a browser before
   // first LIVE push (open risk: corroborated from Tessie mirror + README, not canonical).
   return {
