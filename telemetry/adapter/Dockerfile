@@ -14,16 +14,17 @@
 # --- build: install adapter deps at the root, copy both trees, bundle ---
 FROM node:22-slim AS build
 WORKDIR /app
-RUN corepack enable
+# Pin pnpm to the version that generated the lockfile. corepack would otherwise pull the
+# LATEST pnpm, which enforces a `minimumReleaseAge` supply-chain gate (NOT overridable via
+# project .npmrc) that rejects the committed lockfile's newest entries and fails the frozen
+# install. Matching the local pnpm sidesteps the gate entirely.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Install the adapter's deps at the BUILD ROOT so one node_modules serves both the adapter
 # sources AND the shared src/server/* they import.
 COPY telemetry/adapter/package.json telemetry/adapter/pnpm-lock.yaml ./
-# corepack pulls the latest pnpm, which enforces a `minimum-release-age` supply-chain gate
-# that rejects lockfile entries newer than its cutoff. That gate is for ADOPTING new
-# packages; we install the committed lockfile FROZEN (reproduce, don't adopt), so disable
-# it for this build only. Does not affect your local/host pnpm policy.
-RUN printf 'minimum-release-age=0\n' > .npmrc && pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # Sources: the shared app code + the adapter (node_modules/dist/.env excluded via .dockerignore).
 COPY src ./src
