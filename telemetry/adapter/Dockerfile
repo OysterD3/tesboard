@@ -19,7 +19,11 @@ RUN corepack enable
 # Install the adapter's deps at the BUILD ROOT so one node_modules serves both the adapter
 # sources AND the shared src/server/* they import.
 COPY telemetry/adapter/package.json telemetry/adapter/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+# corepack pulls the latest pnpm, which enforces a `minimum-release-age` supply-chain gate
+# that rejects lockfile entries newer than its cutoff. That gate is for ADOPTING new
+# packages; we install the committed lockfile FROZEN (reproduce, don't adopt), so disable
+# it for this build only. Does not affect your local/host pnpm policy.
+RUN printf 'minimum-release-age=0\n' > .npmrc && pnpm install --frozen-lockfile
 
 # Sources: the shared app code + the adapter (node_modules/dist/.env excluded via .dockerignore).
 COPY src ./src
