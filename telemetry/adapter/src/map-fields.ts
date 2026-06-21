@@ -236,12 +236,16 @@ export function mapField(field: string, value: unknown, deriv: DerivationState):
       return odometer == null ? null : { odometer }
     }
     case 'Soc': {
-      const usable_battery_level = clampRange(value, 0, 100)
-      return usable_battery_level == null ? null : { usable_battery_level }
+      // SOC is an INTEGER column everywhere (vehicle_snapshot + drive/charge_session
+      // start/end_battery_level). Telemetry streams a float (e.g. 54.34) — round at
+      // the source so EVERY downstream insert gets an int, not just the snapshot
+      // (the session-open inserts read SnapshotInput directly and would 22P02 on a float).
+      const soc = clampRange(value, 0, 100)
+      return soc == null ? null : { usable_battery_level: Math.round(soc) }
     }
     case 'BatteryLevel': {
-      const battery_level = clampRange(value, 0, 100)
-      return battery_level == null ? null : { battery_level }
+      const bl = clampRange(value, 0, 100)
+      return bl == null ? null : { battery_level: Math.round(bl) }
     }
     case 'RatedRange': {
       const battery_range = nonNeg(value)

@@ -135,9 +135,12 @@ describe('derivations', () => {
 })
 
 describe('mapField', () => {
-  it('maps Soc to usable_battery_level with clamp', () => {
+  it('maps Soc to usable_battery_level, rounded to int (integer column)', () => {
     const d = emptyDerivationState()
     expect(mapField('Soc', 80, d)).toEqual({ usable_battery_level: 80 })
+    // Telemetry streams a float; must round so the session-open inserts don't 22P02.
+    expect(mapField('Soc', 54.34146341463415, d)).toEqual({ usable_battery_level: 54 })
+    expect(mapField('BatteryLevel', 54.67, d)).toEqual({ battery_level: 55 })
     expect(mapField('Soc', 200, d)).toBeNull() // dropped, out of range
   })
 
