@@ -31,7 +31,11 @@ COPY src ./src
 COPY telemetry/adapter ./telemetry/adapter
 
 # esbuild bundles all deps into a single dist/index.js (ESM, node target).
-RUN cd telemetry/adapter && pnpm run build
+# Deps were installed at /app (so the shared src/server/* tree resolves drizzle-orm), but
+# the build script runs from the adapter dir — whose node_modules doesn't exist — so pnpm's
+# per-project bin lookup can't find esbuild. Put the root .bin on PATH; cwd stays the
+# adapter so the script's relative paths + the @core alias still resolve.
+RUN cd telemetry/adapter && PATH="/app/node_modules/.bin:$PATH" pnpm run build
 
 # --- runtime: only the self-contained bundle is needed ---
 FROM node:22-slim AS runtime
