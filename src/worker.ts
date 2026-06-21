@@ -17,9 +17,17 @@ import { mergeChargeFragmentsAllUsers } from './server/charge-merge'
 import { checkLiveness } from './server/liveness'
 import { withDb } from './server/db'
 import { bridgeEnv } from './server/env-bridge'
+// Tesla's 3p public key, bundled at build time. Cloudflare Workers Assets does NOT serve
+// dot-directories (`.well-known/`), so the static file in public/ never reaches Tesla — the
+// Worker must serve it. It's a PUBLIC key, safe to ship in the bundle. Required for partner
+// registration + virtual-key pairing.
+import teslaPublicKeyPem from '../public/.well-known/appspecific/com.tesla.3p.public-key.pem?raw'
 
 // Durable Object class must be exported from the worker's main module.
 export { VehiclePoller } from './server/vehicle-poller'
+
+/** Tesla must be able to fetch the 3p public key here (partner registration + pairing). */
+const TESLA_PUBLIC_KEY_PATH = '/.well-known/appspecific/com.tesla.3p.public-key.pem'
 
 /** Must match a schedule in wrangler.jsonc; this one runs reconciliation. */
 const RECONCILE_CRON = '0 * * * *' // hourly
@@ -41,6 +49,18 @@ interface BurstNamespace {
 
 export default {
   async fetch(...args: Parameters<typeof startEntry.fetch>) {
+    const request = args[0] as Request
+    if (
+      request.method === 'GET' &&
+      new URL(request.url).pathname === TESLA_PUBLIC_KEY_PATH
+    ) {
+      return new Response(teslaPublicKeyPem, {
+        headers: {
+          'content-type': 'application/x-pem-file',
+          'cache-control': 'public, max-age=3600',
+        },
+      })
+    }
     bridgeEnv(args[1] as Record<string, unknown>)
     return startEntry.fetch(...args)
   },
