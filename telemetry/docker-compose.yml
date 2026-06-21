@@ -10,6 +10,10 @@ services:
     # The image has NO ENTRYPOINT, so command MUST start with the binary path /fleet-telemetry
     # (per Tesla's docs). Without it, runc tries to exec "-config=..." and fails.
     command: ["/fleet-telemetry", "-config=/etc/fleet-telemetry/config.json"]
+    # Run as root: the image defaults to a non-root user that can't read the root-owned
+    # private key (tls.key, chmod 600) and can't bind 443. Running as root lets it read the
+    # key WITHOUT loosening it to world-readable, and bind the privileged port.
+    user: "0:0"
     ports: ["443:443"]                          # ONLY port exposed publicly (mTLS WebSocket from the car)
     volumes:
       - ./config/config.json:/etc/fleet-telemetry/config.json:ro
