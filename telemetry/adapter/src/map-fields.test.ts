@@ -102,11 +102,15 @@ describe('parseLocation', () => {
 })
 
 describe('derivations', () => {
-  it('power_kw = PackVoltage × PackCurrent / 1000', () => {
+  it('power_kw negates PackVoltage × PackCurrent (discharge=drive=positive)', () => {
     const d = emptyDerivationState()
     d.packVoltage = 400
-    d.packCurrent = 100
+    // Tesla streams NEGATIVE current while driving → positive drive power.
+    d.packCurrent = -100
     expect(derivePowerKw(d)).toBe(40)
+    // Positive current = regen/charge → negative power.
+    d.packCurrent = 100
+    expect(derivePowerKw(d)).toBe(-40)
     d.packCurrent = null
     expect(derivePowerKw(d)).toBeNull()
   })
@@ -153,7 +157,8 @@ describe('mapField', () => {
   it('maps PackVoltage/PackCurrent to power_kw incrementally', () => {
     const d = emptyDerivationState()
     expect(mapField('PackVoltage', 400, d)).toEqual({ power_kw: null }) // current unknown yet
-    expect(mapField('PackCurrent', 50, d)).toEqual({ power_kw: 20 })
+    // Tesla streams negative current while driving → positive consumed power.
+    expect(mapField('PackCurrent', -50, d)).toEqual({ power_kw: 20 })
   })
 
   it('rounds charger voltage/current/phases to integers', () => {

@@ -341,10 +341,17 @@ export function selectChargeEnergy(deriv: DerivationState): number | null {
   return null
 }
 
-/** Drive power_kw = PackVoltage × PackCurrent / 1000. null until both known. */
+/**
+ * Drive power_kw from PackVoltage × PackCurrent / 1000, null until both known.
+ * Tesla's PackCurrent is NEGATIVE while DISCHARGING (driving) and positive while
+ * regen/charging — the opposite of the app's convention (positive = power consumed
+ * / driving, negative = regen, matching the REST poller's drive_state.power). So we
+ * NEGATE: driving → positive kW, regen → negative kW. (Verified on-car 2026-06: a
+ * gentle drive streams PackCurrent ≈ −14 A.)
+ */
 export function derivePowerKw(deriv: DerivationState): number | null {
   if (deriv.packVoltage == null || deriv.packCurrent == null) return null
-  const kw = (deriv.packVoltage * deriv.packCurrent) / 1000
+  const kw = -(deriv.packVoltage * deriv.packCurrent) / 1000
   return Number.isFinite(kw) ? kw : null
 }
 
