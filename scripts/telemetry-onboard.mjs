@@ -336,8 +336,10 @@ function buildTelemetryConfigBody() {
   }
 }
 
-async function pushConfig(body) {
+async function pushConfig(body, token) {
   // Goes THROUGH the local tesla-http-proxy, which SIGNS the request with the private key.
+  // The proxy is transparent for AUTH (it only adds the command signature), so we must
+  // still send the OAuth Bearer token — the proxy forwards it to the Fleet API.
   const url = `${proxyBase}/api/1/vehicles/fleet_telemetry_config`
   console.log('• Pushing fleet_telemetry_config (SIGNED, via tesla-http-proxy)…')
   if (dryRun) {
@@ -357,7 +359,7 @@ async function pushConfig(body) {
   try {
     res = await proxyFetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
   } catch (e) {
@@ -455,7 +457,7 @@ await registerPartner(token)
 printPairingInstructions()
 
 const configBody = buildTelemetryConfigBody()
-await pushConfig(configBody)
+await pushConfig(configBody, token)
 await verifyConfig(token)
 
 console.log('✓ Telemetry onboarding complete for', vin)
